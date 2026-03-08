@@ -36,6 +36,28 @@ data class ExternalAdvice(
     val reason: String = ""
 )
 
+data class ExternalTemplateGenerationInput(
+    val conceptPrompt: String,
+    val profileId: String?,
+    val profilePrompt: String?,
+    val playerCount: Int,
+    val averagePartyLevel: Double,
+    val timCoreTaggedNearby: Int,
+    val desiredCount: Int,
+    val seedCandidates: List<ExternalCandidate>
+)
+
+data class ExternalGeneratedTemplate(
+    val id: String? = null,
+    val displayName: String? = null,
+    val description: String? = null,
+    val mode: String? = null,
+    val targetHint: Int? = null,
+    val rewardTier: Int? = null,
+    val weight: Double? = null,
+    val cooldownGroup: String? = null
+)
+
 object ExternalAiAdvisor {
     private val gson = GsonBuilder().disableHtmlEscaping().create()
     private val client = HttpClient.newBuilder()
@@ -69,6 +91,41 @@ object ExternalAiAdvisor {
         }.onFailure {
             CobblemonEventsMod.LOGGER.debug("[AI Advisor] request failed: ${it.message}")
         }.getOrNull()
+    }
+
+    fun requestGeneratedTemplates(input: ExternalTemplateGenerationInput): List<ExternalGeneratedTemplate> {
+        val cfg = AiProfileRegistry.getAdvisorConfig()
+        if (!cfg.enabled || cfg.endpoint.isBlank() || input.desiredCount <= 0) {
+            return emptyList()
+        }
+
+        return runCatching {
+            val payload = mapOf(
+                "type" to "template_generate_batch",
+                "instruction" to (
+                    "Generate creative Cobblemon event templates. " +
+                        "Return strict JSON object: " +
+                        "{\"templates\":[{\"id\",\"displayName\",\"description\",\"mode\",\"targetHint\",\"rewardTier\",\"weight\",\"cooldownGroup\"}]}. " +
+                        "mode should represent catch/battle/variety/hybrid style."
+                    ),
+                "model" to cfg.model,
+                "context" to mapOf(
+                    "conceptPrompt" to input.conceptPrompt,
+                    "profileId" to input.profileId,
+                    "profilePrompt" to input.profilePrompt,
+                    "playerCount" to input.playerCount,
+                    "averagePartyLevel" to input.averagePartyLevel,
+                    "timCoreTaggedNearby" to input.timCoreTaggedNearby,
+                    "desiredCount" to input.desiredCount
+                ),
+                "seedCandidates" to input.seedCandidates
+            )
+
+            val body = postJson(cfg, payload) ?: return emptyList()
+            parseGeneratedTemplates(body).take(input.desiredCount.coerceIn(1, 64))
+        }.onFailure {
+            CobblemonEventsMod.LOGGER.debug("[AI Advisor] template generation failed: ${it.message}")
+        }.getOrElse { emptyList() }
     }
 
     fun testConnection(): Pair<Boolean, String> {
@@ -145,11 +202,49 @@ object ExternalAiAdvisor {
         return null
     }
 
+    private fun parseGeneratedTemplates(body: String): List<ExternalGeneratedTemplate> {
+        parseGeneratedTemplatesFromRawJson(body)?.let { return it }
+
+        val root = runCatching { JsonParser.parseString(body) }.getOrNull() ?: return emptyList()
+        if (!root.isJsonObject) return emptyList()
+        val rootObj = root.asJsonObject
+
+        if (rootObj.has("choices")) {
+            val content = rootObj.getAsJsonArray("choices")
+                .firstOrNull()
+                ?.asJsonObject
+                ?.getAsJsonObject("message")
+                ?.get("content")
+                ?.asString
+            if (!content.isNullOrBlank()) {
+                parseGeneratedTemplatesFromRawJson(content)?.let { return it }
+            }
+        }
+
+        val outputText = rootObj.get("output_text")?.let { it.asString }
+        if (!outputText.isNullOrBlank()) {
+            parseGeneratedTemplatesFromRawJson(outputText)?.let { return it }
+        }
+
+        return emptyList()
+    }
+
     private fun parseAdviceFromRawJson(raw: String): ExternalAdvice? {
         val jsonText = extractLikelyJson(raw) ?: raw
         val parsed = runCatching { JsonParser.parseString(jsonText) }.getOrNull() ?: return null
         if (!parsed.isJsonObject) return null
         return parseAdviceObject(parsed.asJsonObject)
+    }
+
+    private fun parseGeneratedTemplatesFromRawJson(raw: String): List<ExternalGeneratedTemplate>? {
+        val jsonText = extractLikelyJson(raw) ?: extractLikelyJsonArray(raw) ?: raw
+        val parsed = runCatching { JsonParser.parseString(jsonText) }.getOrNull() ?: return null
+
+        return when {
+            parsed.isJsonArray -> parseGeneratedTemplatesArray(parsed.asJsonArray)
+            parsed.isJsonObject -> parseGeneratedTemplatesObject(parsed.asJsonObject)
+            else -> null
+        }
     }
 
     private fun parseAdviceObject(obj: JsonObject): ExternalAdvice? {
@@ -170,9 +265,61 @@ object ExternalAiAdvisor {
         )
     }
 
+    private fun parseGeneratedTemplatesObject(obj: JsonObject): List<ExternalGeneratedTemplate> {
+        val array = firstArray(obj, "templates", "items", "data")
+        if (array != null) {
+            return parseGeneratedTemplatesArray(array)
+        }
+
+        parseGeneratedTemplateObject(obj)?.let { return listOf(it) }
+        return emptyList()
+    }
+
+    private fun parseGeneratedTemplatesArray(array: com.google.gson.JsonArray): List<ExternalGeneratedTemplate> {
+        val out = mutableListOf<ExternalGeneratedTemplate>()
+        for (element in array) {
+            if (!element.isJsonObject) continue
+            parseGeneratedTemplateObject(element.asJsonObject)?.let { out.add(it) }
+        }
+        return out
+    }
+
+    private fun parseGeneratedTemplateObject(obj: JsonObject): ExternalGeneratedTemplate? {
+        val mode = firstString(obj, "mode", "type", "eventMode")
+        val displayName = firstString(obj, "displayName", "name", "title")
+        val description = firstString(obj, "description", "desc", "summary")
+        val id = firstString(obj, "id", "templateId")
+        val targetHint = firstInt(obj, "targetHint", "target", "goal")
+        val rewardTier = firstInt(obj, "rewardTier", "tier")
+        val weight = firstDouble(obj, "weight", "priority")
+        val cooldownGroup = firstString(obj, "cooldownGroup", "group")
+
+        if (mode.isNullOrBlank() && displayName.isNullOrBlank() && description.isNullOrBlank()) {
+            return null
+        }
+
+        return ExternalGeneratedTemplate(
+            id = id?.take(64),
+            displayName = displayName?.take(40),
+            description = description?.take(180),
+            mode = mode?.take(24),
+            targetHint = targetHint,
+            rewardTier = rewardTier,
+            weight = weight,
+            cooldownGroup = cooldownGroup?.take(24)
+        )
+    }
+
     private fun extractLikelyJson(text: String): String? {
         val start = text.indexOf('{')
         val end = text.lastIndexOf('}')
+        if (start < 0 || end <= start) return null
+        return text.substring(start, end + 1)
+    }
+
+    private fun extractLikelyJsonArray(text: String): String? {
+        val start = text.indexOf('[')
+        val end = text.lastIndexOf(']')
         if (start < 0 || end <= start) return null
         return text.substring(start, end + 1)
     }
@@ -192,6 +339,14 @@ object ExternalAiAdvisor {
             if (value.isJsonNull) continue
             runCatching { value.asInt }.getOrNull()?.let { return it }
             runCatching { value.asDouble.toInt() }.getOrNull()?.let { return it }
+        }
+        return null
+    }
+
+    private fun firstArray(obj: JsonObject, vararg keys: String): com.google.gson.JsonArray? {
+        for (key in keys) {
+            val value = obj.get(key) ?: continue
+            if (value.isJsonArray) return value.asJsonArray
         }
         return null
     }

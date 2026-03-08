@@ -8,6 +8,7 @@ import com.cobblemonevents.config.EventConfig
 import com.cobblemonevents.config.RuntimeConfigAutoReloader
 import com.cobblemonevents.events.scheduler.EventScheduler
 import com.cobblemonevents.integration.CobblemonHooks
+import com.cobblemonevents.util.EventProgressHud
 import com.cobblemonevents.util.RankingManager
 import net.fabricmc.api.ModInitializer
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback
@@ -19,7 +20,7 @@ import org.slf4j.LoggerFactory
 object CobblemonEventsMod : ModInitializer {
 
     const val MOD_ID = "cobblemon-events"
-    const val VERSION = "2.4.1-Feat.AI-Bridge"
+    const val VERSION = "2.4.1"
     val LOGGER = LoggerFactory.getLogger(MOD_ID)
 
     lateinit var config: EventConfig
@@ -57,17 +58,20 @@ object CobblemonEventsMod : ModInitializer {
 
         ServerLifecycleEvents.SERVER_STARTED.register { srv ->
             server = srv
+            AiProfileRegistry.applyStartupProfessionalPrompt()
             scheduler.onServerStarted(srv)
             AiGeneratedContentPlanner.onServerStarted()
             RuntimeConfigAutoReloader.onServerStarted()
+            EventProgressHud.onServerStarted()
             rankingManager.load()
             LOGGER.info("[CobblemonEvents] 이벤트 스케줄러 시작. 등록된 이벤트 수: ${config.events.size}")
         }
 
-        ServerLifecycleEvents.SERVER_STOPPING.register { _ ->
+        ServerLifecycleEvents.SERVER_STOPPING.register { srv ->
             scheduler.onServerStopping()
             AiGeneratedContentPlanner.onServerStopping()
             RuntimeConfigAutoReloader.onServerStopping()
+            EventProgressHud.onServerStopping(srv)
             rankingManager.save()
             AiProfileRegistry.save()
             config.save()
@@ -78,6 +82,7 @@ object CobblemonEventsMod : ModInitializer {
         ServerTickEvents.END_SERVER_TICK.register { srv ->
             RuntimeConfigAutoReloader.tick(srv)
             scheduler.tick(srv)
+            EventProgressHud.tick(srv)
             AiGeneratedContentPlanner.tick(srv)
         }
 

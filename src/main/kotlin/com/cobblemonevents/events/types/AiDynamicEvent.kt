@@ -18,13 +18,18 @@ class AiDynamicEvent : EventHandler {
         private const val KEY_TEMPLATE = "ai_dynamic_template_id"
         private const val KEY_PROFILE = "ai_dynamic_profile"
         private const val KEY_VARIETY_MAP = "ai_dynamic_variety_map"
+        private const val KEY_PARTICIPANTS = "ai_dynamic_participants"
+        private const val KEY_REWARDED_PLAYERS = "ai_dynamic_rewarded_players"
     }
 
     override fun onStart(event: ActiveEvent, server: MinecraftServer) {
-        val mode = event.getData<String>(KEY_MODE) ?: "catch"
+        val mode = normalizeMode(event.getData<String>(KEY_MODE))
         val target = event.getData<Int>(KEY_TARGET) ?: 8
         val template = event.getData<String>(KEY_TEMPLATE) ?: "unknown"
         val profile = event.getData<String>(KEY_PROFILE) ?: "none"
+
+        event.setData(KEY_PARTICIPANTS, ConcurrentHashMap.newKeySet<UUID>())
+        event.setData(KEY_REWARDED_PLAYERS, ConcurrentHashMap.newKeySet<UUID>())
 
         if (mode == "variety") {
             event.setData(KEY_VARIETY_MAP, ConcurrentHashMap<UUID, MutableSet<String>>())
@@ -46,7 +51,7 @@ class AiDynamicEvent : EventHandler {
 
     override fun onTick(event: ActiveEvent, server: MinecraftServer) {
         if (event.ticksRemaining > 0 && event.ticksRemaining % (20L * 60L) == 0L) {
-            val mode = event.getData<String>(KEY_MODE) ?: "catch"
+            val mode = normalizeMode(event.getData<String>(KEY_MODE))
             val target = event.getData<Int>(KEY_TARGET) ?: 8
             BroadcastUtil.broadcast(
                 server,
@@ -59,18 +64,23 @@ class AiDynamicEvent : EventHandler {
         val target = event.getData<Int>(KEY_TARGET) ?: 8
         var completed = 0
         var participant = 0
+        val participantSet = event.getData<MutableSet<UUID>>(KEY_PARTICIPANTS) ?: mutableSetOf()
+        val allParticipants = linkedSetOf<UUID>().apply {
+            addAll(participantSet)
+            addAll(event.participants.keys)
+            addAll(event.completedPlayers)
+        }
 
-        for ((uuid, progress) in event.participants) {
+        for (uuid in allParticipants) {
+            val progress = event.participants.getOrDefault(uuid, 0)
             if (progress <= 0) continue
             participant++
 
             val player = server.playerManager.getPlayer(uuid) ?: continue
-            if (event.completedPlayers.contains(uuid) || progress >= target) {
+
+            val rewarded = tryGrantCompletionReward(event, player, target, progress)
+            if (rewarded) {
                 completed++
-                if (!event.completedPlayers.contains(uuid)) {
-                    event.completedPlayers.add(uuid)
-                    RewardManager.giveRewards(player, event.definition.rewards, event.definition)
-                }
             } else {
                 // 미완료 참가 보상 (과하지 않게 고정)
                 RewardManager.giveItemDirect(player, "cobblemon:poke_ball", 4)
@@ -94,13 +104,13 @@ class AiDynamicEvent : EventHandler {
     }
 
     override fun onPokemonCaught(event: ActiveEvent, player: ServerPlayerEntity, species: String) {
-        val mode = event.getData<String>(KEY_MODE) ?: return
+        val mode = normalizeMode(event.getData<String>(KEY_MODE))
         if (mode != "catch" && mode != "variety" && mode != "hybrid") return
         handleProgress(event, player, species, fromCatch = true)
     }
 
     override fun onBattleWon(event: ActiveEvent, player: ServerPlayerEntity, defeatedSpecies: String) {
-        val mode = event.getData<String>(KEY_MODE) ?: return
+        val mode = normalizeMode(event.getData<String>(KEY_MODE))
         if (mode != "battle" && mode != "hybrid") return
         handleProgress(event, player, defeatedSpecies, fromCatch = false)
     }
@@ -111,20 +121,23 @@ class AiDynamicEvent : EventHandler {
         species: String,
         fromCatch: Boolean
     ) {
-        val mode = event.getData<String>(KEY_MODE) ?: "catch"
+        val mode = normalizeMode(event.getData<String>(KEY_MODE))
         val target = event.getData<Int>(KEY_TARGET) ?: 8
+        val participantSet = event.getData<MutableSet<UUID>>(KEY_PARTICIPANTS)
+            ?: ConcurrentHashMap.newKeySet<UUID>().also { event.setData(KEY_PARTICIPANTS, it) }
+        participantSet.add(player.uuid)
 
         val progress = when (mode) {
             "variety" -> {
                 val varietyMap = event.getData<ConcurrentHashMap<UUID, MutableSet<String>>>(KEY_VARIETY_MAP)
                     ?: ConcurrentHashMap<UUID, MutableSet<String>>().also { event.setData(KEY_VARIETY_MAP, it) }
-                val set = varietyMap.computeIfAbsent(player.uuid) { mutableSetOf() }
-                if (!set.add(species.lowercase())) {
-                    set.size
-                } else {
-                    event.participants[player.uuid] = set.size
-                    set.size
+                val set = varietyMap.computeIfAbsent(player.uuid) { ConcurrentHashMap.newKeySet<String>() }
+                val normalizedSpecies = species.trim().lowercase()
+                if (normalizedSpecies.isNotBlank()) {
+                    set.add(normalizedSpecies)
                 }
+                event.participants[player.uuid] = set.size
+                set.size
             }
             else -> event.addProgress(player.uuid)
         }
@@ -134,12 +147,57 @@ class AiDynamicEvent : EventHandler {
             "[AI Dynamic] ${modeToDisplay(mode)} ${progress}/${target}" + if (fromCatch) " (포획)" else " (배틀)"
         )
 
-        if (progress >= target && event.completedPlayers.add(player.uuid)) {
-            RewardManager.giveRewards(player, event.definition.rewards, event.definition)
+        val rewarded = tryGrantCompletionReward(event, player, target, progress)
+        if (rewarded && progress >= target) {
             BroadcastUtil.broadcast(
                 player.server,
                 "${CobblemonEventsMod.config.prefix}[AI Dynamic] ${player.name.string} 님이 목표를 달성했습니다!"
             )
+        }
+    }
+
+    private fun tryGrantCompletionReward(
+        event: ActiveEvent,
+        player: ServerPlayerEntity,
+        target: Int,
+        progress: Int
+    ): Boolean {
+        val hasCompleted = event.completedPlayers.contains(player.uuid) || progress >= target
+        if (!hasCompleted) return false
+
+        event.completedPlayers.add(player.uuid)
+        val rewardedPlayers = event.getData<MutableSet<UUID>>(KEY_REWARDED_PLAYERS)
+            ?: ConcurrentHashMap.newKeySet<UUID>().also { event.setData(KEY_REWARDED_PLAYERS, it) }
+
+        if (!rewardedPlayers.add(player.uuid)) {
+            return true
+        }
+
+        return try {
+            RewardManager.giveRewards(player, event.definition.rewards, event.definition)
+            true
+        } catch (e: Exception) {
+            rewardedPlayers.remove(player.uuid)
+            CobblemonEventsMod.LOGGER.error(
+                "[AI Dynamic] 완료 보상 지급 실패: player=${player.name.string}, event=${event.definition.id}",
+                e
+            )
+            false
+        }
+    }
+
+    private fun normalizeMode(rawMode: String?): String {
+        val mode = rawMode?.trim()?.lowercase().orEmpty()
+        return when (mode) {
+            "catch", "battle", "variety", "hybrid" -> mode
+            else -> {
+                when {
+                    mode.contains("variety") || mode.contains("도감") || mode.contains("diversity") -> "variety"
+                    mode.contains("battle") || mode.contains("raid") || mode.contains("전투") -> "battle"
+                    mode.contains("hybrid") || mode.contains("combo") || mode.contains("복합") -> "hybrid"
+                    else -> "catch"
+                }
+            }
         }
     }
 

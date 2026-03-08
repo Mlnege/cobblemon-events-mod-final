@@ -23,11 +23,11 @@ data class ActiveEvent(
 
     // 참가자 관리
     val participants: ConcurrentHashMap<UUID, Int> = ConcurrentHashMap(),
-    val completedPlayers: MutableSet<UUID> = mutableSetOf(),
+    val completedPlayers: MutableSet<UUID> = ConcurrentHashMap.newKeySet(),
 
     // 이벤트별 임시 데이터
     var eventLocation: BlockPos? = null,
-    var extraData: MutableMap<String, Any> = mutableMapOf()
+    var extraData: MutableMap<String, Any> = ConcurrentHashMap()
 ) {
     fun isCompleted(playerUUID: UUID): Boolean = completedPlayers.contains(playerUUID)
     fun getProgress(playerUUID: UUID): Int = participants.getOrDefault(playerUUID, 0)

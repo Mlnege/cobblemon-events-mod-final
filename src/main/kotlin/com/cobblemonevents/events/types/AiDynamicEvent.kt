@@ -1,6 +1,7 @@
 ﻿package com.cobblemonevents.events.types
 
 import com.cobblemonevents.CobblemonEventsMod
+import com.cobblemonevents.ai.AiGeneratedContentPlanner
 import com.cobblemonevents.events.ActiveEvent
 import com.cobblemonevents.events.EventHandler
 import com.cobblemonevents.rewards.RewardManager
@@ -62,6 +63,7 @@ class AiDynamicEvent : EventHandler {
 
     override fun onEnd(event: ActiveEvent, server: MinecraftServer) {
         val target = event.getData<Int>(KEY_TARGET) ?: 8
+        val mode = normalizeMode(event.getData<String>(KEY_MODE))
         var completed = 0
         var participant = 0
         val participantSet = event.getData<MutableSet<UUID>>(KEY_PARTICIPANTS) ?: mutableSetOf()
@@ -91,6 +93,13 @@ class AiDynamicEvent : EventHandler {
                 )
             }
         }
+
+        AiGeneratedContentPlanner.recordDynamicOutcome(
+            mode = mode,
+            participants = participant,
+            completed = completed,
+            durationMinutes = event.definition.durationMinutes
+        )
 
         BroadcastUtil.announceEventEnd(
             server,

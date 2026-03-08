@@ -51,6 +51,7 @@ data class ExternalGeneratedTemplate(
     val id: String? = null,
     val displayName: String? = null,
     val description: String? = null,
+    val category: String? = null,
     val mode: String? = null,
     val targetHint: Int? = null,
     val rewardTier: Int? = null,
@@ -103,10 +104,14 @@ object ExternalAiAdvisor {
             val payload = mapOf(
                 "type" to "template_generate_batch",
                 "instruction" to (
-                    "Generate creative Cobblemon event templates. " +
-                        "Return strict JSON object: " +
-                        "{\"templates\":[{\"id\",\"displayName\",\"description\",\"mode\",\"targetHint\",\"rewardTier\",\"weight\",\"cooldownGroup\"}]}. " +
-                        "mode should represent catch/battle/variety/hybrid style."
+                    "Generate Cobblemon live-server safe event templates only. " +
+                        "Follow strict constraints: targetHint must be 4..10, duration handled server-side with max 20min, " +
+                        "avoid OP/economy-breaking rewards, avoid high-load mechanics, avoid global scans, avoid loops/spam. " +
+                        "Use categories with probability-friendly labels: general, migration, world_raid, legendary_tracking, type_surge. " +
+                        "mode must map to catch/battle/variety/hybrid. " +
+                        "Return strict JSON object only: " +
+                        "{\"templates\":[{\"id\",\"displayName\",\"description\",\"category\",\"mode\",\"targetHint\",\"rewardTier\",\"weight\",\"cooldownGroup\"}]}. " +
+                        "Each template description should include compact 운영 형식(발생 조건/진행 방식/종료 조건/성능 영향/밸런스 검토) in one or two sentences."
                     ),
                 "model" to cfg.model,
                 "context" to mapOf(
@@ -285,6 +290,7 @@ object ExternalAiAdvisor {
     }
 
     private fun parseGeneratedTemplateObject(obj: JsonObject): ExternalGeneratedTemplate? {
+        val category = firstString(obj, "category", "eventCategory", "kind")
         val mode = firstString(obj, "mode", "type", "eventMode")
         val displayName = firstString(obj, "displayName", "name", "title")
         val description = firstString(obj, "description", "desc", "summary")
@@ -302,6 +308,7 @@ object ExternalAiAdvisor {
             id = id?.take(64),
             displayName = displayName?.take(40),
             description = description?.take(180),
+            category = category?.take(32),
             mode = mode?.take(24),
             targetHint = targetHint,
             rewardTier = rewardTier,

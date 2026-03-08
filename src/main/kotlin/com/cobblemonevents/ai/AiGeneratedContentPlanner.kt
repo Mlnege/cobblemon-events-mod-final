@@ -14,7 +14,6 @@ import net.minecraft.server.MinecraftServer
 import net.minecraft.server.network.ServerPlayerEntity
 import net.minecraft.util.math.Box
 import kotlin.math.abs
-import kotlin.math.roundToInt
 import kotlin.random.Random
 
 data class AiGeneratedDecision(
@@ -33,6 +32,7 @@ private data class AiDynamicTemplate(
     val id: String,
     val displayName: String,
     val description: String,
+    val category: String,
     val mode: String,
     val targetLevel: Double,
     val baseTarget: Int,
@@ -45,21 +45,30 @@ object AiGeneratedContentPlanner {
     @Volatile
     private var autoPlannerEnabled = false
 
-    private const val AUTO_PLAN_INTERVAL_TICKS = 20L * 60L * 12L
-    private const val RETRY_INTERVAL_TICKS = 20L * 60L * 3L
+    private const val AUTO_PLAN_INTERVAL_MINUTES_MIN = 15L
+    private const val AUTO_PLAN_INTERVAL_MINUTES_MAX = 30L
+    private const val RETRY_INTERVAL_TICKS = 20L * 60L * 15L
     private const val MIN_EVENT_TYPE_COOLDOWN_TICKS = 20L * 60L * 25L
     private const val MIN_EVENT_ID_COOLDOWN_TICKS = 20L * 60L * 20L
     private const val TIM_CORE_SCAN_RADIUS = 48.0
     private const val DEFAULT_ADDON_DURATION_MINUTES = 5
+    private const val MAX_ADDON_DURATION_MINUTES = 20
+    private const val MIN_TARGET_COUNT = 4
+    private const val MAX_TARGET_COUNT = 10
     private const val UPCOMING_BASE_EVENT_GUARD_TICKS = 20L * 60L * 6L
-    private const val PROCEDURAL_TEMPLATE_BATCH_SIZE = 24
+    private const val PROCEDURAL_TEMPLATE_BATCH_SIZE = 36
     private const val EXTERNAL_TEMPLATE_BATCH_SIZE = 24
-    private const val MAX_TEMPLATE_POOL_SIZE = 96
+    private const val TEMPLATE_DATABASE_SIZE = 150
+    private const val MAX_TEMPLATE_POOL_SIZE = 150
     private const val CANDIDATE_WINDOW_SIZE = 12
+    private const val TPS_STOP_THRESHOLD = 17.0
+    private const val TPS_WARNING_THRESHOLD = 18.0
+    private const val RECENT_OUTCOME_LIMIT = 24
 
     private val eventTypeLastExecutedTick = mutableMapOf<String, Long>()
     private val eventIdLastExecutedTick = mutableMapOf<String, Long>()
     private val cycleRemainingTemplateIds = linkedSetOf<String>()
+    private val recentOutcomes = mutableListOf<DynamicOutcome>()
 
     private val dataSources: List<PlannerDataSource> = listOf(
         ServerCoreDataSource,
@@ -68,7 +77,7 @@ object AiGeneratedContentPlanner {
 
     @Volatile
     private var initialized = false
-    private var ticksUntilNextAutoPlan = AUTO_PLAN_INTERVAL_TICKS
+    private var ticksUntilNextAutoPlan = computeNextAutoIntervalTicks()
     private var serverTickCounter = 0L
     private var lastDecision = AiGeneratedDecision(
         executed = false,
@@ -77,21 +86,23 @@ object AiGeneratedContentPlanner {
 
     fun onServerStarted() {
         initialized = true
-        ticksUntilNextAutoPlan = AUTO_PLAN_INTERVAL_TICKS
+        ticksUntilNextAutoPlan = computeNextAutoIntervalTicks()
         serverTickCounter = 0L
         eventTypeLastExecutedTick.clear()
         eventIdLastExecutedTick.clear()
         cycleRemainingTemplateIds.clear()
+        recentOutcomes.clear()
         lastDecision = AiGeneratedDecision(false, "server_started")
     }
 
     fun onServerStopping() {
         initialized = false
-        ticksUntilNextAutoPlan = AUTO_PLAN_INTERVAL_TICKS
+        ticksUntilNextAutoPlan = computeNextAutoIntervalTicks()
         serverTickCounter = 0L
         eventTypeLastExecutedTick.clear()
         eventIdLastExecutedTick.clear()
         cycleRemainingTemplateIds.clear()
+        recentOutcomes.clear()
     }
 
     fun tick(server: MinecraftServer) {
@@ -105,7 +116,7 @@ object AiGeneratedContentPlanner {
 
         val decision = generate(server, execute = true, ignoreCooldown = false, trigger = "auto")
         ticksUntilNextAutoPlan = if (decision.executed) {
-            computeNextAutoIntervalTicks(decision.playerCount)
+            computeNextAutoIntervalTicks()
         } else {
             RETRY_INTERVAL_TICKS
         }
@@ -118,11 +129,23 @@ object AiGeneratedContentPlanner {
         trigger: String
     ): AiGeneratedDecision {
         val players = server.playerManager.playerList
+        val estimatedTps = estimateServerTps(server)
         if (players.isEmpty()) {
             val decision = AiGeneratedDecision(
                 executed = false,
                 reason = "no_online_players",
                 playerCount = 0,
+                trigger = trigger
+            )
+            lastDecision = decision
+            return decision
+        }
+
+        if (execute && !ignoreCooldown && estimatedTps != null && estimatedTps < TPS_STOP_THRESHOLD) {
+            val decision = AiGeneratedDecision(
+                executed = false,
+                reason = "tps_below_17",
+                playerCount = players.size,
                 trigger = trigger
             )
             lastDecision = decision
@@ -169,6 +192,9 @@ object AiGeneratedContentPlanner {
         }
 
         val dataContext = PlannerDataContext()
+        dataContext.estimatedTps = estimatedTps
+        dataContext.recentSuccessRate = recentSuccessRate()
+        dataContext.recentAverageDurationMinutes = recentAverageDurationMinutes()
         for (source in dataSources) {
             source.enrich(server, players, dataContext)
         }
@@ -229,9 +255,14 @@ object AiGeneratedContentPlanner {
         val rotationCandidates = candidates.filter { (template, _) -> template.id in rotationPreferredIds }
         val effectiveCandidates = if (rotationCandidates.isNotEmpty()) rotationCandidates else candidates
 
-        val topCandidates = effectiveCandidates.take(CANDIDATE_WINDOW_SIZE)
+        val selectedArchetype = pickEventArchetype()
+        val archetypeCandidates = effectiveCandidates.filter { (template, _) ->
+            matchesArchetype(template, selectedArchetype)
+        }
+        val selectionCandidates = if (archetypeCandidates.isNotEmpty()) archetypeCandidates else effectiveCandidates
+        val topCandidates = selectionCandidates.take(CANDIDATE_WINDOW_SIZE)
         var selected = weightedPick(topCandidates) ?: topCandidates.first().first
-        var target = computeTarget(selected, players.size, averagePartyLevel)
+        var target = computeTarget(selected, players.size, averagePartyLevel, dataContext)
         var advisorUsed = false
         var advisorReason: String? = null
 
@@ -249,7 +280,7 @@ object AiGeneratedContentPlanner {
                         mode = template.mode,
                         displayName = template.displayName,
                         localScore = score,
-                        suggestedTarget = computeTarget(template, players.size, averagePartyLevel)
+                        suggestedTarget = computeTarget(template, players.size, averagePartyLevel, dataContext)
                     )
                 }
             )
@@ -261,10 +292,39 @@ object AiGeneratedContentPlanner {
             if (advisedTemplate != null) {
                 selected = advisedTemplate
             }
-            target = (computeTarget(selected, players.size, averagePartyLevel) + advice.targetDelta).coerceIn(3, 28)
+            target = (
+                computeTarget(selected, players.size, averagePartyLevel, dataContext) + advice.targetDelta
+                ).coerceIn(MIN_TARGET_COUNT, MAX_TARGET_COUNT)
             advisorReason = advice.reason
         }
 
+        if (
+            execute &&
+            !ignoreCooldown &&
+            estimatedTps != null &&
+            estimatedTps < TPS_WARNING_THRESHOLD &&
+            isHighLoadMode(selected.mode)
+        ) {
+            val fallback = selectionCandidates.firstOrNull { (template, _) -> !isHighLoadMode(template.mode) }?.first
+            if (fallback == null) {
+                val decision = AiGeneratedDecision(
+                    executed = false,
+                    reason = "tps_warning_no_low_load_candidate",
+                    selectedProfileId = selectedProfile?.id,
+                    playerCount = players.size,
+                    averagePartyLevel = averagePartyLevel,
+                    timCoreTaggedNearby = dataContext.timCoreTaggedNearby,
+                    trigger = trigger
+                )
+                lastDecision = decision
+                return decision
+            }
+            selected = fallback
+            target = computeTarget(selected, players.size, averagePartyLevel, dataContext)
+            advisorReason = listOfNotNull(advisorReason, "tps_guard_fallback_applied").joinToString(" | ")
+        }
+
+        target = target.coerceIn(MIN_TARGET_COUNT, MAX_TARGET_COUNT)
         val runtimeDef = buildRuntimeDefinition(selected, addonDurationMinutes)
 
         if (!execute) {
@@ -338,8 +398,9 @@ object AiGeneratedContentPlanner {
     fun getStatusLine(): String {
         val minutesUntil = (ticksUntilNextAutoPlan / 20L / 60L).coerceAtLeast(0)
         val rotation = rotationRemainingText()
+        val successRate = recentSuccessRate()?.let { String.format("%.2f", it) } ?: "-"
         return "auto_enabled=$autoPlannerEnabled, next_auto_plan=${minutesUntil}m, last=${lastDecision.reason}, " +
-            "last_event=${lastDecision.selectedEventId ?: "-"}, rotation_remaining=$rotation"
+            "last_event=${lastDecision.selectedEventId ?: "-"}, rotation_remaining=$rotation, success_rate=$successRate"
     }
 
     fun getLastDecision(): AiGeneratedDecision = lastDecision
@@ -347,7 +408,7 @@ object AiGeneratedContentPlanner {
     fun setAutoPlannerEnabled(enabled: Boolean) {
         autoPlannerEnabled = enabled
         if (enabled && ticksUntilNextAutoPlan <= 0L) {
-            ticksUntilNextAutoPlan = AUTO_PLAN_INTERVAL_TICKS
+            ticksUntilNextAutoPlan = computeNextAutoIntervalTicks()
         }
     }
 
@@ -424,6 +485,7 @@ object AiGeneratedContentPlanner {
                 id = "catch_rush",
                 displayName = "포획 러시",
                 description = "지정 시간 동안 포획 수를 달성하는 창의형 AI 이벤트",
+                category = "general",
                 mode = "catch",
                 targetLevel = 28.0,
                 baseTarget = 6,
@@ -435,6 +497,7 @@ object AiGeneratedContentPlanner {
                 id = "battle_chain",
                 displayName = "배틀 체인",
                 description = "지정 시간 동안 배틀 승리 누적을 달성하는 창의형 AI 이벤트",
+                category = "world_raid",
                 mode = "battle",
                 targetLevel = 40.0,
                 baseTarget = 5,
@@ -446,6 +509,7 @@ object AiGeneratedContentPlanner {
                 id = "variety_scan",
                 displayName = "도감 다양성 스캔",
                 description = "서로 다른 종족 포획으로 목표를 채우는 창의형 AI 이벤트",
+                category = "type_surge",
                 mode = "variety",
                 targetLevel = 32.0,
                 baseTarget = 4,
@@ -457,12 +521,49 @@ object AiGeneratedContentPlanner {
                 id = "hybrid_pressure",
                 displayName = "하이브리드 미션",
                 description = "포획과 배틀을 동시에 활용하는 고난도 AI 이벤트",
+                category = "world_raid",
                 mode = "hybrid",
                 targetLevel = 52.0,
                 baseTarget = 7,
                 rewardTier = 3,
                 weight = 0.8,
                 cooldownGroup = "hybrid"
+            ),
+            AiDynamicTemplate(
+                id = "migration_hunt",
+                displayName = "포켓몬 대이동",
+                description = "특정 포켓몬 스폰이 활발한 구역에서 포획 목표를 달성하는 이벤트",
+                category = "migration",
+                mode = "catch",
+                targetLevel = 30.0,
+                baseTarget = 7,
+                rewardTier = 1,
+                weight = 1.05,
+                cooldownGroup = "catch"
+            ),
+            AiDynamicTemplate(
+                id = "legend_trace",
+                displayName = "전설 포켓몬 추적",
+                description = "단서를 모아 전설 추적 진행도를 채우는 운영형 이벤트",
+                category = "legendary_tracking",
+                mode = "variety",
+                targetLevel = 45.0,
+                baseTarget = 6,
+                rewardTier = 2,
+                weight = 0.95,
+                cooldownGroup = "variety"
+            ),
+            AiDynamicTemplate(
+                id = "type_overdrive",
+                displayName = "타입 대폭주",
+                description = "특정 타입 중심으로 목표를 채우는 단기 폭주형 이벤트",
+                category = "type_surge",
+                mode = "variety",
+                targetLevel = 36.0,
+                baseTarget = 6,
+                rewardTier = 2,
+                weight = 1.0,
+                cooldownGroup = "variety"
             )
         )
 
@@ -493,7 +594,26 @@ object AiGeneratedContentPlanner {
                 }
             }
         }
-        return merged
+
+        if (merged.isNotEmpty() && merged.size < TEMPLATE_DATABASE_SIZE) {
+            val seedPool = merged.toList()
+            var idx = 0
+            while (merged.size < TEMPLATE_DATABASE_SIZE && merged.size < MAX_TEMPLATE_POOL_SIZE) {
+                val seed = seedPool[idx % seedPool.size]
+                val syntheticId = "${sanitizeIdPart(seed.id)}_db_${idx}_${System.nanoTime()}"
+                if (seenIds.add(syntheticId)) {
+                    merged.add(
+                        seed.copy(
+                            id = syntheticId.take(80),
+                            displayName = "${seed.displayName} #${idx + 1}".take(40)
+                        )
+                    )
+                }
+                idx++
+            }
+        }
+
+        return merged.take(MAX_TEMPLATE_POOL_SIZE)
     }
 
     private fun buildProceduralTemplates(
@@ -512,14 +632,18 @@ object AiGeneratedContentPlanner {
 
         for (idx in 0 until PROCEDURAL_TEMPLATE_BATCH_SIZE) {
             val mode = pickMode(prompt)
+            val category = pickEventArchetype()
             val seed = seedTemplates[Random.nextInt(seedTemplates.size)]
             val flavor = modifiers[Random.nextInt(modifiers.size)]
-            val targetHint = (baseTargetForMode(mode) + playerCount + Random.nextInt(-2, 4)).coerceIn(3, 28)
+            val targetHint = (baseTargetForMode(mode) + playerCount + Random.nextInt(-1, 3)).coerceIn(
+                MIN_TARGET_COUNT,
+                MAX_TARGET_COUNT
+            )
             val rewardTier = (
                 seed.rewardTier + (if (mode == "hybrid") 1 else 0) + Random.nextInt(-1, 2)
                 ).coerceIn(1, 3)
             val weight = (seed.weight + Random.nextDouble(-0.35, 0.85)).coerceIn(0.35, 3.0)
-            val id = "proc_${mode}_${now}_${idx}_${Random.nextInt(1000, 9999)}"
+            val id = "proc_${category}_${mode}_${now}_${idx}_${Random.nextInt(1000, 9999)}"
             val displayName = "$flavor ${modeDisplay(mode)} 미션"
             val description = "AI 절차 생성 이벤트: ${modeDisplay(mode)} 중심 목표 $targetHint 달성"
             val targetLevel = (averagePartyLevel + Random.nextDouble(-12.0, 16.0)).coerceIn(8.0, 95.0)
@@ -529,6 +653,7 @@ object AiGeneratedContentPlanner {
                     id = id,
                     displayName = displayName.take(40),
                     description = description.take(180),
+                    category = category,
                     mode = mode,
                     targetLevel = targetLevel,
                     baseTarget = targetHint,
@@ -558,7 +683,7 @@ object AiGeneratedContentPlanner {
                 mode = template.mode,
                 displayName = template.displayName,
                 localScore = template.weight * 10.0,
-                suggestedTarget = template.baseTarget.coerceIn(3, 28)
+                suggestedTarget = template.baseTarget.coerceIn(MIN_TARGET_COUNT, MAX_TARGET_COUNT)
             )
         }
 
@@ -591,9 +716,10 @@ object AiGeneratedContentPlanner {
         averagePartyLevel: Double
     ): AiDynamicTemplate? {
         val mode = normalizeMode(raw.mode)
+        val category = normalizeArchetype(raw.category, mode)
         val safeIdFromAi = sanitizeIdPart(raw.id)
         val id = if (safeIdFromAi.isBlank()) {
-            "ext_${mode}_${now}_${index}_${Random.nextInt(1000, 9999)}"
+            "ext_${category}_${mode}_${now}_${index}_${Random.nextInt(1000, 9999)}"
         } else {
             "ext_${safeIdFromAi}_${now}_${index}"
         }.take(80)
@@ -604,8 +730,8 @@ object AiGeneratedContentPlanner {
         val description = raw.description?.trim().orEmpty().ifBlank {
             "외부 AI가 생성한 창의형 ${modeDisplay(mode)} 이벤트"
         }.take(180)
-        val targetHint = raw.targetHint?.coerceIn(3, 28)
-            ?: (baseTargetForMode(mode) + playerCount).coerceIn(3, 28)
+        val targetHint = raw.targetHint?.coerceIn(MIN_TARGET_COUNT, MAX_TARGET_COUNT)
+            ?: (baseTargetForMode(mode) + (playerCount / 2)).coerceIn(MIN_TARGET_COUNT, MAX_TARGET_COUNT)
         val rewardTier = raw.rewardTier?.coerceIn(1, 3) ?: rewardTierForMode(mode, targetHint)
         val weight = (raw.weight ?: (1.0 + rewardTier * 0.12)).coerceIn(0.3, 3.5)
         val cooldownGroup = sanitizeIdPart(raw.cooldownGroup).ifBlank { mode }.take(24)
@@ -617,6 +743,7 @@ object AiGeneratedContentPlanner {
             id = id,
             displayName = displayName,
             description = description,
+            category = category,
             mode = mode,
             targetLevel = targetLevel,
             baseTarget = targetHint,
@@ -668,6 +795,41 @@ object AiGeneratedContentPlanner {
         }
     }
 
+    private fun normalizeArchetype(rawCategory: String?, mode: String): String {
+        val category = rawCategory?.trim()?.lowercase().orEmpty()
+        if (category in setOf("general", "migration", "world_raid", "legendary_tracking", "type_surge")) {
+            return category
+        }
+        return when (mode) {
+            "battle", "hybrid" -> "world_raid"
+            "variety" -> "type_surge"
+            else -> "general"
+        }
+    }
+
+    private fun pickEventArchetype(): String {
+        val roll = Random.nextInt(100)
+        return when {
+            roll < 55 -> "general"
+            roll < 75 -> "migration"
+            roll < 90 -> "world_raid"
+            roll < 95 -> "legendary_tracking"
+            else -> "type_surge"
+        }
+    }
+
+    private fun matchesArchetype(template: AiDynamicTemplate, archetype: String): Boolean {
+        if (template.category == archetype) return true
+        return when (archetype) {
+            "general" -> true
+            "migration" -> template.mode == "catch"
+            "world_raid" -> template.mode == "battle" || template.mode == "hybrid"
+            "legendary_tracking" -> template.mode == "variety" || template.mode == "battle"
+            "type_surge" -> template.mode == "variety" || template.mode == "catch"
+            else -> true
+        }
+    }
+
     private fun baseTargetForMode(mode: String): Int {
         return when (mode) {
             "catch" -> 7
@@ -685,7 +847,7 @@ object AiGeneratedContentPlanner {
             "variety" -> 2
             else -> 1
         }
-        return (byMode + if (targetHint >= 12) 1 else 0).coerceIn(1, 3)
+        return (byMode + if (targetHint >= 10) 1 else 0).coerceIn(1, 3)
     }
 
     private fun modeDisplay(mode: String): String {
@@ -751,6 +913,23 @@ object AiGeneratedContentPlanner {
             }
         }
 
+        val tps = context.estimatedTps
+        if (tps != null) {
+            if (tps < TPS_WARNING_THRESHOLD && isHighLoadMode(template.mode)) {
+                score -= 30.0
+            }
+            if (tps >= 19.0 && template.mode == "catch") {
+                score += 2.0
+            }
+        }
+
+        when (template.category) {
+            "migration" -> if (template.mode == "catch") score += 3.0
+            "world_raid" -> if (template.mode == "battle" || template.mode == "hybrid") score += 3.0
+            "legendary_tracking" -> if (template.mode == "variety") score += 2.0
+            "type_surge" -> if (template.mode == "variety") score += 2.0
+        }
+
         val prompt = (conceptPrompt + " " + (selectedProfile?.prompt ?: "")).lowercase()
         if (containsAny(prompt, "밸런스", "안정", "경제")) {
             if (template.rewardTier >= 3) score -= 6.0
@@ -759,21 +938,80 @@ object AiGeneratedContentPlanner {
         return score
     }
 
-    private fun computeTarget(template: AiDynamicTemplate, playerCount: Int, averagePartyLevel: Double): Int {
-        val levelFactor = (averagePartyLevel / 30.0).roundToInt().coerceAtLeast(0)
-        val base = template.baseTarget + playerCount + levelFactor
+    private fun computeTarget(
+        template: AiDynamicTemplate,
+        playerCount: Int,
+        averagePartyLevel: Double,
+        context: PlannerDataContext
+    ): Int {
+        val difficulty = resolveDifficultyBand(
+            playerCount = playerCount,
+            recentSuccessRate = context.recentSuccessRate,
+            recentAverageDurationMinutes = context.recentAverageDurationMinutes,
+            estimatedTps = context.estimatedTps
+        )
 
-        return when (template.mode) {
-            "catch" -> base.coerceIn(6, 24)
-            "battle" -> base.coerceIn(4, 18)
-            "variety" -> (template.baseTarget + (playerCount / 2) + (levelFactor / 2)).coerceIn(4, 12)
-            "hybrid" -> base.coerceIn(6, 20)
-            else -> base.coerceIn(5, 16)
+        val range = when (difficulty) {
+            DifficultyBand.EASY -> 4..5
+            DifficultyBand.NORMAL -> 6..7
+            DifficultyBand.HARD -> 8..9
+            DifficultyBand.VERY_HARD -> 10..10
+        }
+
+        val levelAdjust = when {
+            averagePartyLevel >= 65.0 -> 1
+            averagePartyLevel <= 20.0 -> -1
+            else -> 0
+        }
+        val modeAdjust = when (template.mode) {
+            "variety" -> -1
+            "hybrid" -> 1
+            else -> 0
+        }
+        val base = template.baseTarget + (playerCount / 4) + levelAdjust + modeAdjust
+        return base.coerceIn(range.first, range.last).coerceIn(MIN_TARGET_COUNT, MAX_TARGET_COUNT)
+    }
+
+    private fun resolveDifficultyBand(
+        playerCount: Int,
+        recentSuccessRate: Double?,
+        recentAverageDurationMinutes: Double?,
+        estimatedTps: Double?
+    ): DifficultyBand {
+        var level = when {
+            playerCount <= 3 -> 0
+            playerCount <= 7 -> 1
+            playerCount <= 12 -> 2
+            else -> 3
+        }
+
+        if (recentSuccessRate != null) {
+            if (recentSuccessRate >= 0.78) level += 1
+            if (recentSuccessRate <= 0.42) level -= 1
+        }
+
+        if (recentAverageDurationMinutes != null) {
+            if (recentAverageDurationMinutes <= 5.0) level += 1
+            if (recentAverageDurationMinutes >= 14.0) level -= 1
+        }
+
+        if (estimatedTps != null && estimatedTps < TPS_WARNING_THRESHOLD) {
+            level -= 1
+        }
+
+        return when (level.coerceIn(0, 3)) {
+            0 -> DifficultyBand.EASY
+            1 -> DifficultyBand.NORMAL
+            2 -> DifficultyBand.HARD
+            else -> DifficultyBand.VERY_HARD
         }
     }
 
     private fun buildRuntimeDefinition(template: AiDynamicTemplate, addonDurationMinutes: Int): EventDefinition {
-        val safeDurationMinutes = addonDurationMinutes.takeIf { it > 0 } ?: DEFAULT_ADDON_DURATION_MINUTES
+        val safeDurationMinutes = addonDurationMinutes
+            .takeIf { it > 0 }
+            ?.coerceAtMost(MAX_ADDON_DURATION_MINUTES)
+            ?: DEFAULT_ADDON_DURATION_MINUTES
         return EventDefinition(
             id = "aidyn_${template.id}_${System.currentTimeMillis()}",
             displayName = "AI ${template.displayName}",
@@ -804,9 +1042,9 @@ object AiGeneratedContentPlanner {
             )
             else -> listOf(
                 ItemRewardEntry("cobblemon:ultra_ball", 6),
-                ItemRewardEntry("cobblemon:exp_candy_m", 2),
-                ItemRewardEntry("cobblemon:rare_candy", 2),
-                ItemRewardEntry("cobblemon:beast_ball", 1)
+                ItemRewardEntry("cobblemon:exp_candy_s", 3),
+                ItemRewardEntry("cobblemon:rare_candy", 1),
+                ItemRewardEntry("cobblemon:timer_ball", 3)
             )
         }
 
@@ -833,13 +1071,11 @@ object AiGeneratedContentPlanner {
         return shifted.last().first
     }
 
-    private fun computeNextAutoIntervalTicks(playerCount: Int): Long {
-        val minutes = when {
-            playerCount >= 8 -> 8L
-            playerCount >= 5 -> 10L
-            playerCount >= 3 -> 12L
-            else -> 16L
-        }
+    private fun computeNextAutoIntervalTicks(): Long {
+        val minutes = Random.nextLong(
+            AUTO_PLAN_INTERVAL_MINUTES_MIN,
+            AUTO_PLAN_INTERVAL_MINUTES_MAX + 1L
+        )
         return minutes * 60L * 20L
     }
 
@@ -930,6 +1166,67 @@ object AiGeneratedContentPlanner {
         return keywords.any { text.contains(it) }
     }
 
+    fun recordDynamicOutcome(mode: String, participants: Int, completed: Int, durationMinutes: Int) {
+        val safeParticipants = participants.coerceAtLeast(0)
+        val safeCompleted = completed.coerceIn(0, safeParticipants)
+        val safeDuration = durationMinutes.coerceIn(1, MAX_ADDON_DURATION_MINUTES)
+        val safeMode = normalizeMode(mode)
+        recentOutcomes.add(
+            DynamicOutcome(
+                mode = safeMode,
+                participants = safeParticipants,
+                completed = safeCompleted,
+                durationMinutes = safeDuration
+            )
+        )
+        if (recentOutcomes.size > RECENT_OUTCOME_LIMIT) {
+            recentOutcomes.removeAt(0)
+        }
+    }
+
+    private fun recentSuccessRate(): Double? {
+        if (recentOutcomes.isEmpty()) return null
+        val values = recentOutcomes.map {
+            if (it.participants <= 0) 0.0 else it.completed.toDouble() / it.participants.toDouble()
+        }
+        return values.average().coerceIn(0.0, 1.0)
+    }
+
+    private fun recentAverageDurationMinutes(): Double? {
+        if (recentOutcomes.isEmpty()) return null
+        return recentOutcomes.map { it.durationMinutes.toDouble() }.average()
+    }
+
+    private fun estimateServerTps(server: MinecraftServer): Double? {
+        val nanos = runCatching {
+            val method = server.javaClass.methods.firstOrNull {
+                it.name == "getAverageNanosPerTick" && it.parameterCount == 0
+            } ?: return@runCatching null
+            val value = method.invoke(server) as? Number ?: return@runCatching null
+            value.toDouble()
+        }.getOrNull()
+
+        if (nanos != null && nanos > 0.0) {
+            return (1_000_000_000.0 / nanos).coerceIn(0.0, 20.0)
+        }
+
+        val tickTimesAvg = runCatching {
+            val method = server.javaClass.methods.firstOrNull {
+                it.name == "getTickTimes" && it.parameterCount == 0
+            } ?: return@runCatching null
+            val raw = method.invoke(server) as? LongArray ?: return@runCatching null
+            if (raw.isEmpty()) return@runCatching null
+            raw.average()
+        }.getOrNull()
+
+        if (tickTimesAvg != null && tickTimesAvg > 0.0) {
+            return (1_000_000_000.0 / tickTimesAvg).coerceIn(0.0, 20.0)
+        }
+        return null
+    }
+
+    private fun isHighLoadMode(mode: String): Boolean = mode == "battle" || mode == "hybrid"
+
     private data class PlannerPlayerProfile(
         val uuid: String,
         val name: String,
@@ -946,6 +1243,23 @@ object AiGeneratedContentPlanner {
         var timCoreBucketTaggedNearby: Int = 0,
         var timCoreSpawnCauseTaggedNearby: Int = 0,
         var raidDensLoaded: Boolean = false,
-        var loadedCoreMods: Int = 0
+        var loadedCoreMods: Int = 0,
+        var estimatedTps: Double? = null,
+        var recentSuccessRate: Double? = null,
+        var recentAverageDurationMinutes: Double? = null
     )
+
+    private data class DynamicOutcome(
+        val mode: String,
+        val participants: Int,
+        val completed: Int,
+        val durationMinutes: Int
+    )
+
+    private enum class DifficultyBand {
+        EASY,
+        NORMAL,
+        HARD,
+        VERY_HARD
+    }
 }

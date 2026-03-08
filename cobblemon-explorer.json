@@ -1,0 +1,39 @@
+﻿{
+  "enabled": true,
+  "intervalMinutes": 30,
+  "durationMinutes": 3,
+  "stopRewards": {
+    "pokemon": [
+      {
+        "species": "eevee",
+        "level": 15,
+        "shinyChance": 0.08,
+        "ivMin": 0,
+        "ivMax": 31,
+        "formAspects": [],
+        "moves": [],
+        "ability": ""
+      }
+    ],
+    "items": [
+      {
+        "itemId": "cobblemon:great_ball",
+        "count": 6,
+        "nbt": null
+      },
+      {
+        "itemId": "cobblemon:ultra_ball",
+        "count": 3,
+        "nbt": null
+      },
+      {
+        "itemId": "cobblemon:exp_candy_m",
+        "count": 2,
+        "nbt": null
+      }
+    ],
+    "rewardMode": "RANDOM_MULTI",
+    "randomCount": 2,
+    "broadcastReward": true
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "cobblemon-events",
+  "version": "${version}",
+  "name": "코블몬 이벤트",
+  "description": "코블몬 전용 대규모 이벤트 모드 - 시공균열, 전설레이드, 사냥시즌, 울트라워프홀, 레어드롭(Mega Showdown/Legendary Monuments 연동)",
+  "authors": ["CobblemonEvents"],
+  "contact": {},
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      {
+        "adapter": "kotlin",
+        "value": "com.cobblemonevents.CobblemonEventsMod"
+      }
+    ]
+  },
+  "mixins": [],
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "fabric-api": "*",
+    "fabric-language-kotlin": "*",
+    "minecraft": "~1.21.1",
+    "java": ">=21"
+  },
+  "suggests": {
+    "cobblemon": ">=1.7.3",
+    "cobblemon-ultra-beasts": "*",
+    "mega_showdown": "*",
+    "legendarymonuments": "*"
+  }
+}

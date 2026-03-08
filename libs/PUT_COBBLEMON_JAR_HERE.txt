@@ -1,0 +1,7 @@
+This ZIP intentionally excludes the Cobblemon jar because that single file is ~130 MB and was making downloads fail.
+
+After extracting, put your Cobblemon jar here:
+libs/cobblemon-fabric-1.7.3+1.21.1.jar
+
+Then build with:
+.\gradlew.bat clean build

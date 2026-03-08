@@ -1,0 +1,25 @@
+{
+  "modmenu.nameTranslation.cobblemon-events": "Cobblemon Events",
+  "modmenu.descriptionTranslation.cobblemon-events": "Massive auto event & reward mod for Cobblemon",
+
+  "cobblemonevents.event.type.temporal_rift": "Temporal Rift",
+  "cobblemonevents.event.type.explorer": "Pokemon Explorer",
+  "cobblemonevents.event.type.hunting_season": "Hunting Season",
+  "cobblemonevents.event.type.legendary_raid": "Legendary Raid",
+  "cobblemonevents.event.type.lucky_event": "Lucky Event",
+  "cobblemonevents.event.type.ultra_wormhole": "Ultra Wormhole",
+
+  "cobblemonevents.state.waiting": "Waiting",
+  "cobblemonevents.state.announced": "Announced",
+  "cobblemonevents.state.active": "Active",
+  "cobblemonevents.state.ended": "Ended",
+
+  "cobblemonevents.message.event_start": "Event Started!",
+  "cobblemonevents.message.event_end": "Event Ended!",
+  "cobblemonevents.message.reward_given": "Rewards given!",
+
+  "cobblemonevents.ranking.title": "Hunting Season Final Results!",
+  "cobblemonevents.ranking.1st": "1st Place",
+  "cobblemonevents.ranking.2nd": "2nd Place",
+  "cobblemonevents.ranking.3rd": "3rd Place"
+}

@@ -1,0 +1,26 @@
+# Gradle
+.gradle/
+.gradle-user/
+.gradle-user-fresh/
+build/
+out/
+
+# IDE
+.idea/
+.kotlin/
+*.iml
+
+# Runtime
+run/
+logs/
+
+# Local dependency jars (do not commit)
+libs/*.jar
+
+# Temp
+.tmp/
+*.log
+
+# OS
+Thumbs.db
+.DS_Store

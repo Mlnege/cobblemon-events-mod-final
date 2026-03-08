@@ -1,5 +1,7 @@
-package com.cobblemonevents
+﻿package com.cobblemonevents
 
+import com.cobblemonevents.ai.AiGeneratedContentPlanner
+import com.cobblemonevents.commands.AiGeneratedContentCommand
 import com.cobblemonevents.commands.EventCommands
 import com.cobblemonevents.config.EventConfig
 import com.cobblemonevents.events.scheduler.EventScheduler
@@ -15,7 +17,7 @@ import org.slf4j.LoggerFactory
 object CobblemonEventsMod : ModInitializer {
 
     const val MOD_ID = "cobblemon-events"
-    const val VERSION = "2.1.0"
+    const val VERSION = "2.3.1-Feat.AI"
     val LOGGER = LoggerFactory.getLogger(MOD_ID)
 
     lateinit var config: EventConfig
@@ -32,12 +34,12 @@ object CobblemonEventsMod : ModInitializer {
 
     override fun onInitialize() {
         if (initialized) {
-            LOGGER.warn("§e[코블몬 이벤트] §f이미 초기화되어 중복 등록을 건너뜁니다.")
+            LOGGER.warn("[CobblemonEvents] 이미 초기화되어 중복 등록을 건너뜁니다.")
             return
         }
         initialized = true
 
-        LOGGER.info("§a[코블몬 이벤트] §fv$VERSION 초기화 중...")
+        LOGGER.info("[CobblemonEvents] v$VERSION 초기화 중...")
 
         config = EventConfig.load()
         scheduler = EventScheduler()
@@ -47,28 +49,33 @@ object CobblemonEventsMod : ModInitializer {
 
         CommandRegistrationCallback.EVENT.register { dispatcher, _, _ ->
             EventCommands.register(dispatcher)
+            AiGeneratedContentCommand.register(dispatcher)
         }
 
         ServerLifecycleEvents.SERVER_STARTED.register { srv ->
             server = srv
             scheduler.onServerStarted(srv)
+            AiGeneratedContentPlanner.onServerStarted()
             rankingManager.load()
-            LOGGER.info("§a[코블몬 이벤트] §f이벤트 스케줄러 시작! 등록된 이벤트: ${config.events.size}개")
+            LOGGER.info("[CobblemonEvents] 이벤트 스케줄러 시작. 등록된 이벤트 수: ${config.events.size}")
         }
 
         ServerLifecycleEvents.SERVER_STOPPING.register { _ ->
             scheduler.onServerStopping()
+            AiGeneratedContentPlanner.onServerStopping()
             rankingManager.save()
             config.save()
             server = null
-            LOGGER.info("§a[코블몬 이벤트] §f모드 종료.")
+            LOGGER.info("[CobblemonEvents] 모드 종료.")
         }
 
         ServerTickEvents.END_SERVER_TICK.register { srv ->
             scheduler.tick(srv)
+            AiGeneratedContentPlanner.tick(srv)
         }
 
-        LOGGER.info("§a[코블몬 이벤트] §fv$VERSION 초기화 완료!")
-        LOGGER.info("§a[코블몬 이벤트] §f지원 이벤트: 시공균열, 대탐험, 사냥시즌, 전설레이드, 럭키, 울트라워프홀")
+        LOGGER.info("[CobblemonEvents] v$VERSION 초기화 완료.")
+        LOGGER.info("[CobblemonEvents] 지원 이벤트: 시공의 균열, 대탐험, 사냥 시즌, 전설 레이드, 럭키 이벤트, 울트라 웜홀")
     }
 }
+

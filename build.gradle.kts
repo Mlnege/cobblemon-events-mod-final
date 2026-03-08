@@ -1,4 +1,4 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+﻿import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.cobblemonevents"
-version = "2.2.0"
+version = "2.3.1-Feat.AI"
 
 base {
     archivesName.set("cobblemon-events")
@@ -78,3 +78,5 @@ tasks.register("verifyCobblemonJar") {
 tasks.named("build") {
     dependsOn("verifyCobblemonJar")
 }
+
+

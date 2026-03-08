@@ -239,7 +239,7 @@ class EventScheduler {
         }
 
         if (event.ticksRemaining <= 0) {
-            endEvent(event, server, reschedule = true)
+            endEvent(event, server, reschedule = shouldRescheduleOnEnd(event))
         }
     }
 
@@ -319,6 +319,44 @@ class EventScheduler {
         return true
     }
 
+    /**
+     * AI 부가 컨텐츠용 임시 이벤트 시작.
+     * 기본 스케줄 이벤트를 건드리지 않기 위해 고유 ID로 1회성 인스턴스를 생성한다.
+     */
+    fun forceStartAddonFromBase(
+        baseEventId: String,
+        server: MinecraftServer,
+        durationMinutes: Int
+    ): Boolean {
+        val baseDef = CobblemonEventsMod.config.events.find { it.id == baseEventId } ?: return false
+        if (!handlers.containsKey(baseDef.eventType)) return false
+
+        val safeDuration = durationMinutes.coerceAtLeast(1)
+        val addonId = "aiaddon_${baseDef.id}_${System.currentTimeMillis()}"
+        val addonDef = baseDef.copy(
+            id = addonId,
+            displayName = "${baseDef.displayName} [AI Addon]",
+            description = "${baseDef.description} (AI Addon)",
+            intervalMinutes = Int.MAX_VALUE,
+            durationMinutes = safeDuration,
+            startDelayMinutes = 0,
+            announceBeforeMinutes = 0,
+            requiredPlayerCount = 1
+        )
+
+        val event = ActiveEvent(
+            definition = addonDef,
+            state = EventState.WAITING,
+            ticksUntilStart = 1L,
+            ticksRemaining = safeDuration.toLong() * 20L * 60L,
+            ticksUntilAnnounce = 0L
+        )
+
+        activeEvents[addonId] = event
+        tryStartEvent(event, server, ignorePlayerRequirement = true)
+        return event.state == EventState.ACTIVE
+    }
+
     fun forceStop(eventId: String, server: MinecraftServer): Boolean {
         val event = activeEvents[eventId] ?: return false
 
@@ -367,6 +405,10 @@ class EventScheduler {
         activeEvents.values.filter { it.state == EventState.ACTIVE }
 
     fun getAllEvents(): Map<String, ActiveEvent> = activeEvents.toMap()
+
+    private fun shouldRescheduleOnEnd(event: ActiveEvent): Boolean {
+        return !event.definition.id.startsWith("aiaddon_")
+    }
 
     fun reload() {
         CobblemonEventsMod.config.reload()

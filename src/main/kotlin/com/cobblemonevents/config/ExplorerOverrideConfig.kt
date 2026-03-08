@@ -68,6 +68,8 @@ data class ExplorerOverrideConfig(
             }
         }
 
+        fun activeConfigFile(): File = resolveFile()
+
         private fun resolveFile(): File {
             return if (LOCAL_FILE.exists()) LOCAL_FILE else CONFIG_FILE
         }

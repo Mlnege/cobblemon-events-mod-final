@@ -42,11 +42,26 @@ object AiProfileRegistry {
     private var loaded = false
     private var config: AiProfileConfig = AiProfileConfig()
 
+    fun configPathFile(): File = configFile
+
     fun load() {
         synchronized(this) {
             if (loaded) return
             config = readOrCreateDefault()
             loaded = true
+        }
+    }
+
+    fun reloadFromDisk(): Boolean {
+        synchronized(this) {
+            return try {
+                config = readOrCreateDefault()
+                loaded = true
+                true
+            } catch (e: Exception) {
+                CobblemonEventsMod.LOGGER.error("[AI] Failed to reload AI profile config.", e)
+                false
+            }
         }
     }
 

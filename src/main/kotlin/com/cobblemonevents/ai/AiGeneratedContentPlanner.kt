@@ -55,6 +55,7 @@ object AiGeneratedContentPlanner {
 
     private val eventTypeLastExecutedTick = mutableMapOf<String, Long>()
     private val eventIdLastExecutedTick = mutableMapOf<String, Long>()
+    private val cycleRemainingTemplateIds = linkedSetOf<String>()
 
     private val dataSources: List<PlannerDataSource> = listOf(
         ServerCoreDataSource,
@@ -76,6 +77,7 @@ object AiGeneratedContentPlanner {
         serverTickCounter = 0L
         eventTypeLastExecutedTick.clear()
         eventIdLastExecutedTick.clear()
+        cycleRemainingTemplateIds.clear()
         lastDecision = AiGeneratedDecision(false, "server_started")
     }
 
@@ -85,6 +87,7 @@ object AiGeneratedContentPlanner {
         serverTickCounter = 0L
         eventTypeLastExecutedTick.clear()
         eventIdLastExecutedTick.clear()
+        cycleRemainingTemplateIds.clear()
     }
 
     fun tick(server: MinecraftServer) {
@@ -169,6 +172,8 @@ object AiGeneratedContentPlanner {
         val conceptPrompt = AiProfileRegistry.getConceptPrompt()
         val selectedProfile = AiProfileRegistry.pickEnabledProfile()
         val templates = buildTemplates(conceptPrompt, selectedProfile)
+        syncTemplateRotation(templates)
+        val rotationPreferredIds = cycleRemainingTemplateIds.toSet()
 
         val candidates = templates
             .asSequence()
@@ -184,7 +189,7 @@ object AiGeneratedContentPlanner {
                 )
             }
             .sortedByDescending { it.second }
-            .toList()
+                .toList()
 
         if (candidates.isEmpty()) {
             val decision = AiGeneratedDecision(
@@ -200,7 +205,10 @@ object AiGeneratedContentPlanner {
             return decision
         }
 
-        val topCandidates = candidates.take(4)
+        val rotationCandidates = candidates.filter { (template, _) -> template.id in rotationPreferredIds }
+        val effectiveCandidates = if (rotationCandidates.isNotEmpty()) rotationCandidates else candidates
+
+        val topCandidates = effectiveCandidates.take(4)
         var selected = weightedPick(topCandidates) ?: topCandidates.first().first
         var target = computeTarget(selected, players.size, averagePartyLevel)
         var advisorUsed = false
@@ -267,6 +275,7 @@ object AiGeneratedContentPlanner {
 
         val decision = if (started) {
             markExecuted(selected)
+            markTemplateConsumed(selected.id, templates)
             BroadcastUtil.broadcast(
                 server,
                 "${CobblemonEventsMod.config.prefix}[AI Dynamic] 신규 창의 이벤트 '${selected.displayName}' 시작 " +
@@ -307,7 +316,9 @@ object AiGeneratedContentPlanner {
 
     fun getStatusLine(): String {
         val minutesUntil = (ticksUntilNextAutoPlan / 20L / 60L).coerceAtLeast(0)
-        return "auto_enabled=$autoPlannerEnabled, next_auto_plan=${minutesUntil}m, last=${lastDecision.reason}, last_event=${lastDecision.selectedEventId ?: "-"}"
+        val rotation = rotationRemainingText()
+        return "auto_enabled=$autoPlannerEnabled, next_auto_plan=${minutesUntil}m, last=${lastDecision.reason}, " +
+            "last_event=${lastDecision.selectedEventId ?: "-"}, rotation_remaining=$rotation"
     }
 
     fun getLastDecision(): AiGeneratedDecision = lastDecision
@@ -346,6 +357,36 @@ object AiGeneratedContentPlanner {
     private fun markExecuted(template: AiDynamicTemplate) {
         eventTypeLastExecutedTick[template.cooldownGroup] = serverTickCounter
         eventIdLastExecutedTick[template.id] = serverTickCounter
+    }
+
+    private fun syncTemplateRotation(templates: List<AiDynamicTemplate>) {
+        if (templates.isEmpty()) {
+            cycleRemainingTemplateIds.clear()
+            return
+        }
+        val ids = templates.map { it.id }.toSet()
+        cycleRemainingTemplateIds.retainAll(ids)
+        if (cycleRemainingTemplateIds.isEmpty()) {
+            cycleRemainingTemplateIds.addAll(ids)
+        }
+    }
+
+    private fun markTemplateConsumed(templateId: String, templates: List<AiDynamicTemplate>) {
+        if (templates.isEmpty()) return
+
+        if (cycleRemainingTemplateIds.isEmpty()) {
+            cycleRemainingTemplateIds.addAll(templates.map { it.id })
+        }
+
+        cycleRemainingTemplateIds.remove(templateId)
+        if (cycleRemainingTemplateIds.isEmpty()) {
+            cycleRemainingTemplateIds.addAll(templates.map { it.id })
+        }
+    }
+
+    private fun rotationRemainingText(): String {
+        if (cycleRemainingTemplateIds.isEmpty()) return "-"
+        return cycleRemainingTemplateIds.joinToString("|")
     }
 
     private fun buildTemplates(conceptPrompt: String, profile: AiProfileEntry?): List<AiDynamicTemplate> {

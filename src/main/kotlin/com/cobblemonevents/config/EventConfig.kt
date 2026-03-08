@@ -285,6 +285,8 @@ data class EventConfig(
         private val CONFIG_FILE: File
             get() = FabricLoader.getInstance().configDir.resolve("cobblemon-events.json").toFile()
 
+        fun configFile(): File = CONFIG_FILE
+
         fun load(): EventConfig {
             return try {
                 if (CONFIG_FILE.exists()) {
@@ -396,9 +398,33 @@ data class EventConfig(
             CobblemonEventsMod.LOGGER.error("설정 파일 저장 실패", e)
         }
     }
-
     fun reload(): EventConfig {
-        val newConfig = load()
+        val newConfig = try {
+            if (!CONFIG_FILE.exists()) {
+                CobblemonEventsMod.LOGGER.warn("[설정] cobblemon-events.json 파일이 없어 기본 파일을 다시 생성합니다.")
+                val recreated = load()
+                this.prefix = recreated.prefix
+                this.language = recreated.language
+                this.events = recreated.events
+                this.globalShinyBoost = recreated.globalShinyBoost
+                this.globalExpBoost = recreated.globalExpBoost
+                this.globalCatchBoost = recreated.globalCatchBoost
+                this.rareDrops = recreated.rareDrops
+                return this
+            }
+
+            val json = CONFIG_FILE.readText()
+            GSON.fromJson(json, EventConfig::class.java)
+        } catch (e: Exception) {
+            CobblemonEventsMod.LOGGER.error("[설정] cobblemon-events.json 리로드 실패, 기존 값을 유지합니다.", e)
+            null
+        }
+
+        if (newConfig == null) {
+            CobblemonEventsMod.LOGGER.warn("[설정] 리로드할 수 없어 기존 설정을 유지합니다.")
+            return this
+        }
+
         this.prefix = newConfig.prefix
         this.language = newConfig.language
         this.events = newConfig.events

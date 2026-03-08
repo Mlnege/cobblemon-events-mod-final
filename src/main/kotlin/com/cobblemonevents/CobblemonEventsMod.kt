@@ -5,6 +5,7 @@ import com.cobblemonevents.ai.AiProfileRegistry
 import com.cobblemonevents.commands.AiGeneratedContentCommand
 import com.cobblemonevents.commands.EventCommands
 import com.cobblemonevents.config.EventConfig
+import com.cobblemonevents.config.RuntimeConfigAutoReloader
 import com.cobblemonevents.events.scheduler.EventScheduler
 import com.cobblemonevents.integration.CobblemonHooks
 import com.cobblemonevents.util.RankingManager
@@ -58,6 +59,7 @@ object CobblemonEventsMod : ModInitializer {
             server = srv
             scheduler.onServerStarted(srv)
             AiGeneratedContentPlanner.onServerStarted()
+            RuntimeConfigAutoReloader.onServerStarted()
             rankingManager.load()
             LOGGER.info("[CobblemonEvents] 이벤트 스케줄러 시작. 등록된 이벤트 수: ${config.events.size}")
         }
@@ -65,6 +67,7 @@ object CobblemonEventsMod : ModInitializer {
         ServerLifecycleEvents.SERVER_STOPPING.register { _ ->
             scheduler.onServerStopping()
             AiGeneratedContentPlanner.onServerStopping()
+            RuntimeConfigAutoReloader.onServerStopping()
             rankingManager.save()
             AiProfileRegistry.save()
             config.save()
@@ -73,6 +76,7 @@ object CobblemonEventsMod : ModInitializer {
         }
 
         ServerTickEvents.END_SERVER_TICK.register { srv ->
+            RuntimeConfigAutoReloader.tick(srv)
             scheduler.tick(srv)
             AiGeneratedContentPlanner.tick(srv)
         }

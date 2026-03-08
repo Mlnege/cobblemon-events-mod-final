@@ -18,7 +18,7 @@ import org.slf4j.LoggerFactory
 object CobblemonEventsMod : ModInitializer {
 
     const val MOD_ID = "cobblemon-events"
-    const val VERSION = "2.3.1-Feat.AI"
+    const val VERSION = "2.4.0-Feat.AI-Bridge"
     val LOGGER = LoggerFactory.getLogger(MOD_ID)
 
     lateinit var config: EventConfig
@@ -81,4 +81,5 @@ object CobblemonEventsMod : ModInitializer {
         LOGGER.info("[CobblemonEvents] 지원 이벤트: 시공의 균열, 대탐험, 사냥 시즌, 전설 레이드, 럭키 이벤트, 울트라 웜홀")
     }
 }
+
 

@@ -15,6 +15,7 @@ data class AiProfileEntry(
 
 data class AiProfileConfig(
     var conceptPrompt: String = "Base schedule first. AI runs only as a lightweight addon.",
+    var advisor: AiExternalAdvisorConfig = AiExternalAdvisorConfig(),
     var profiles: MutableList<AiProfileEntry> = mutableListOf(
         AiProfileEntry(
             id = "default",
@@ -22,6 +23,14 @@ data class AiProfileConfig(
             enabled = true
         )
     )
+)
+
+data class AiExternalAdvisorConfig(
+    var enabled: Boolean = false,
+    var endpoint: String = "",
+    var bearerToken: String = "",
+    var model: String = "",
+    var timeoutMs: Int = 2500
 )
 
 object AiProfileRegistry {
@@ -74,6 +83,53 @@ object AiProfileRegistry {
         synchronized(this) {
             ensureLoaded()
             return config.profiles.map { it.copy() }
+        }
+    }
+
+    fun getAdvisorConfig(): AiExternalAdvisorConfig {
+        synchronized(this) {
+            ensureLoaded()
+            return config.advisor.copy()
+        }
+    }
+
+    fun setAdvisorEnabled(enabled: Boolean) {
+        synchronized(this) {
+            ensureLoaded()
+            config.advisor.enabled = enabled
+            save()
+        }
+    }
+
+    fun setAdvisorEndpoint(endpoint: String) {
+        synchronized(this) {
+            ensureLoaded()
+            config.advisor.endpoint = endpoint.trim()
+            save()
+        }
+    }
+
+    fun setAdvisorToken(token: String) {
+        synchronized(this) {
+            ensureLoaded()
+            config.advisor.bearerToken = token.trim()
+            save()
+        }
+    }
+
+    fun setAdvisorModel(model: String) {
+        synchronized(this) {
+            ensureLoaded()
+            config.advisor.model = model.trim()
+            save()
+        }
+    }
+
+    fun setAdvisorTimeoutMs(timeoutMs: Int) {
+        synchronized(this) {
+            ensureLoaded()
+            config.advisor.timeoutMs = timeoutMs.coerceIn(500, 15000)
+            save()
         }
     }
 

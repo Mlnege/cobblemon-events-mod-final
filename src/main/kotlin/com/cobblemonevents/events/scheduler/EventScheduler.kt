@@ -28,6 +28,7 @@ class EventScheduler {
         handlers["LEGENDARY_RAID"] = LegendaryRaidEvent()
         handlers["LUCKY_EVENT"] = LuckyEvent()
         handlers["ULTRA_WORMHOLE"] = UltraWormholeEvent()
+        handlers["AI_DYNAMIC"] = AiDynamicEvent()
     }
 
     fun onServerStarted(server: MinecraftServer) {
@@ -357,6 +358,34 @@ class EventScheduler {
         return event.state == EventState.ACTIVE
     }
 
+    fun forceStartDynamic(
+        definition: EventDefinition,
+        server: MinecraftServer,
+        initialData: Map<String, Any> = emptyMap()
+    ): Boolean {
+        if (!handlers.containsKey(definition.eventType)) return false
+        val existing = activeEvents[definition.id]
+        if (existing != null && existing.state != EventState.ENDED) {
+            return false
+        }
+
+        val event = ActiveEvent(
+            definition = definition,
+            state = EventState.WAITING,
+            ticksUntilStart = 1L,
+            ticksRemaining = effectiveDurationMinutes(definition).toLong() * 20L * 60L,
+            ticksUntilAnnounce = 0L
+        )
+
+        for ((key, value) in initialData) {
+            event.setData(key, value)
+        }
+
+        activeEvents[definition.id] = event
+        tryStartEvent(event, server, ignorePlayerRequirement = true)
+        return event.state == EventState.ACTIVE
+    }
+
     fun forceStop(eventId: String, server: MinecraftServer): Boolean {
         val event = activeEvents[eventId] ?: return false
 
@@ -407,7 +436,7 @@ class EventScheduler {
     fun getAllEvents(): Map<String, ActiveEvent> = activeEvents.toMap()
 
     private fun shouldRescheduleOnEnd(event: ActiveEvent): Boolean {
-        return !event.definition.id.startsWith("aiaddon_")
+        return !event.definition.id.startsWith("aiaddon_") && event.definition.eventType != "AI_DYNAMIC"
     }
 
     fun reload() {

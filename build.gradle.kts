@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.cobblemonevents"
-version = "2.3.1-Feat.AI"
+version = "2.4.0-Feat.AI-Bridge"
 
 base {
     archivesName.set("cobblemon-events")
@@ -78,5 +78,6 @@ tasks.register("verifyCobblemonJar") {
 tasks.named("build") {
     dependsOn("verifyCobblemonJar")
 }
+
 
 

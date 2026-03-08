@@ -2,8 +2,10 @@
 
 import com.cobblemonevents.CobblemonEventsMod
 import com.cobblemonevents.ai.AiGeneratedContentPlanner
+import com.cobblemonevents.ai.ExternalAiAdvisor
 import com.cobblemonevents.ai.AiProfileRegistry
 import com.mojang.brigadier.CommandDispatcher
+import com.mojang.brigadier.arguments.IntegerArgumentType
 import com.mojang.brigadier.arguments.StringArgumentType
 import com.mojang.brigadier.context.CommandContext
 import net.minecraft.server.command.CommandManager.argument
@@ -50,6 +52,24 @@ object AiGeneratedContentCommand {
                     .then(literal("disable")
                         .then(argument("id", StringArgumentType.word()).executes { setProfileEnabled(it, false) })
                     )
+                )
+                .then(literal("advisor")
+                    .then(literal("status").executes { advisorStatus(it) })
+                    .then(literal("enable").executes { setAdvisorEnabled(it, true) })
+                    .then(literal("disable").executes { setAdvisorEnabled(it, false) })
+                    .then(literal("endpoint")
+                        .then(argument("url", StringArgumentType.greedyString()).executes { setAdvisorEndpoint(it) })
+                    )
+                    .then(literal("model")
+                        .then(argument("name", StringArgumentType.greedyString()).executes { setAdvisorModel(it) })
+                    )
+                    .then(literal("token")
+                        .then(argument("value", StringArgumentType.greedyString()).executes { setAdvisorToken(it) })
+                    )
+                    .then(literal("timeout")
+                        .then(argument("ms", IntegerArgumentType.integer(500, 15000)).executes { setAdvisorTimeout(it) })
+                    )
+                    .then(literal("test").executes { testAdvisor(it) })
                 )
         )
     }
@@ -229,5 +249,77 @@ object AiGeneratedContentCommand {
         val state = if (enabled) "enabled" else "disabled"
         source.sendFeedback({ Text.literal("${prefix}[AI] profile $state: $id") }, true)
         return 1
+    }
+
+    private fun advisorStatus(ctx: CommandContext<ServerCommandSource>): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        val cfg = AiProfileRegistry.getAdvisorConfig()
+        val hasToken = if (cfg.bearerToken.isBlank()) "no" else "yes"
+        source.sendFeedback(
+            {
+                Text.literal(
+                    "${prefix}[AI Advisor] enabled=${cfg.enabled}, endpoint=${cfg.endpoint.ifBlank { "-" }}, " +
+                        "model=${cfg.model.ifBlank { "-" }}, timeout=${cfg.timeoutMs}ms, token=$hasToken"
+                )
+            },
+            false
+        )
+        return 1
+    }
+
+    private fun setAdvisorEnabled(ctx: CommandContext<ServerCommandSource>, enabled: Boolean): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        AiProfileRegistry.setAdvisorEnabled(enabled)
+        source.sendFeedback({ Text.literal("${prefix}[AI Advisor] ${if (enabled) "enabled" else "disabled"}") }, true)
+        return 1
+    }
+
+    private fun setAdvisorEndpoint(ctx: CommandContext<ServerCommandSource>): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        val url = StringArgumentType.getString(ctx, "url")
+        AiProfileRegistry.setAdvisorEndpoint(url)
+        source.sendFeedback({ Text.literal("${prefix}[AI Advisor] endpoint updated.") }, true)
+        return 1
+    }
+
+    private fun setAdvisorModel(ctx: CommandContext<ServerCommandSource>): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        val model = StringArgumentType.getString(ctx, "name")
+        AiProfileRegistry.setAdvisorModel(model)
+        source.sendFeedback({ Text.literal("${prefix}[AI Advisor] model updated.") }, true)
+        return 1
+    }
+
+    private fun setAdvisorToken(ctx: CommandContext<ServerCommandSource>): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        val token = StringArgumentType.getString(ctx, "value")
+        AiProfileRegistry.setAdvisorToken(token)
+        source.sendFeedback({ Text.literal("${prefix}[AI Advisor] token updated.") }, true)
+        return 1
+    }
+
+    private fun setAdvisorTimeout(ctx: CommandContext<ServerCommandSource>): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        val ms = IntegerArgumentType.getInteger(ctx, "ms")
+        AiProfileRegistry.setAdvisorTimeoutMs(ms)
+        source.sendFeedback({ Text.literal("${prefix}[AI Advisor] timeout set to ${ms}ms.") }, true)
+        return 1
+    }
+
+    private fun testAdvisor(ctx: CommandContext<ServerCommandSource>): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        val (ok, message) = ExternalAiAdvisor.testConnection()
+        source.sendFeedback(
+            { Text.literal("${prefix}[AI Advisor] test=${if (ok) "ok" else "fail"} ($message)") },
+            false
+        )
+        return if (ok) 1 else 0
     }
 }

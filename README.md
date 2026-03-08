@@ -7,6 +7,9 @@
 - Fabric Loader 0.16.0
 - Minecraft 1.21.1
 - Cobblemon Fabric `1.7.3+1.21.1` JAR
+- Cobblemon Raid den
+- Cobblemon legendary monument
+- cobblemon megashowdown
 
 ## 로컬 Cobblemon JAR 배치
 이 저장소는 Cobblemon JAR를 포함하지 않습니다.

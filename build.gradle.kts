@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.cobblemonevents"
-version = "2.4.0-Feat.AI-Bridge"
+version = "2.4.1-Feat.AI-Bridge"
 
 base {
     archivesName.set("cobblemon-events")

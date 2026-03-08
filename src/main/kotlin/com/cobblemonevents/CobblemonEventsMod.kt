@@ -19,7 +19,7 @@ import org.slf4j.LoggerFactory
 object CobblemonEventsMod : ModInitializer {
 
     const val MOD_ID = "cobblemon-events"
-    const val VERSION = "2.4.0-Feat.AI-Bridge"
+    const val VERSION = "2.4.1-Feat.AI-Bridge"
     val LOGGER = LoggerFactory.getLogger(MOD_ID)
 
     lateinit var config: EventConfig

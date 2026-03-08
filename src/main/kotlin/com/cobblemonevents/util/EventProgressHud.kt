@@ -7,7 +7,9 @@ import net.minecraft.text.Text
 
 object EventProgressHud {
     private const val UPDATE_INTERVAL_TICKS = 20L
-    private const val OBJECTIVE_ID = "ce_progress"
+    private const val SIDEBAR_UPDATE_INTERVAL_TICKS = 40L
+    private const val OBJECTIVE_ID = "ce_evt"
+    private const val SIDEBAR_TITLE = "§b✦ 이벤트 진행"
 
     @Volatile
     private var running = false
@@ -15,7 +17,6 @@ object EventProgressHud {
     private var tickCounter = 0L
     private var objectivePrepared = false
     private var hadActiveEvent = false
-    private var lastTitle = ""
     private val previousSidebarEntries = linkedSetOf<String>()
 
     fun onServerStarted() {
@@ -23,7 +24,6 @@ object EventProgressHud {
         tickCounter = 0L
         objectivePrepared = false
         hadActiveEvent = false
-        lastTitle = ""
         previousSidebarEntries.clear()
     }
 
@@ -36,7 +36,6 @@ object EventProgressHud {
         tickCounter = 0L
         objectivePrepared = false
         hadActiveEvent = false
-        lastTitle = ""
         previousSidebarEntries.clear()
     }
 
@@ -58,8 +57,10 @@ object EventProgressHud {
 
         hadActiveEvent = true
         ensureObjective(server)
-        renderSidebar(server, active)
         renderActionbar(server, active)
+        if (tickCounter % SIDEBAR_UPDATE_INTERVAL_TICKS == 0L) {
+            renderSidebar(server, active)
+        }
     }
 
     private fun renderActionbar(server: MinecraftServer, event: ActiveEvent) {
@@ -90,12 +91,7 @@ object EventProgressHud {
         val done = event.completedPlayers.size
         val progressTotal = event.participants.values.sum()
         val remain = formatRemain(event)
-
-        val title = "Event:${sanitizeToken(event.definition.id)}"
-        if (title != lastTitle) {
-            runCommand(server, "scoreboard objectives modify $OBJECTIVE_ID displayname \"${escapeQuoted(title)}\"")
-            lastTitle = title
-        }
+        val eventName = trimForSidebar(event.definition.displayName, 18)
 
         for (oldEntry in previousSidebarEntries) {
             runCommand(server, "scoreboard players reset \"${escapeQuoted(oldEntry)}\" $OBJECTIVE_ID")
@@ -103,12 +99,14 @@ object EventProgressHud {
         previousSidebarEntries.clear()
 
         val lines = listOf(
-            "1.Left:$remain" to 6,
-            "2.Joined:$joined" to 5,
-            "3.Done:$done" to 4,
-            "4.Target:${target ?: "-"}" to 3,
-            "5.Progress:$progressTotal" to 2,
-            "6.Type:${sanitizeToken(event.definition.eventType)}" to 1
+            "§f이벤트 §e$eventName" to 8,
+            "§7────────────" to 7,
+            "§f남은시간 §b$remain" to 6,
+            "§f참가 §a${joined}명" to 5,
+            "§f완료 §d${done}명" to 4,
+            "§f목표 §e${target ?: "-"}" to 3,
+            "§f진행도 §6$progressTotal" to 2,
+            "§8${sanitizeToken(event.definition.eventType)}" to 1
         )
 
         for ((raw, score) in lines) {
@@ -122,7 +120,8 @@ object EventProgressHud {
 
     private fun ensureObjective(server: MinecraftServer) {
         if (objectivePrepared) return
-        runCommand(server, "scoreboard objectives add $OBJECTIVE_ID dummy \"EventProgress\"")
+        runCommand(server, "scoreboard objectives add $OBJECTIVE_ID dummy \"$SIDEBAR_TITLE\"")
+        runCommand(server, "scoreboard objectives modify $OBJECTIVE_ID displayname \"$SIDEBAR_TITLE\"")
         runCommand(server, "scoreboard objectives setdisplay sidebar $OBJECTIVE_ID")
         objectivePrepared = true
     }
@@ -162,11 +161,16 @@ object EventProgressHud {
 
     private fun sanitizeEntry(value: String): String {
         val safe = value
-            .replace(" ", "_")
             .replace("\"", "")
             .replace("\\", "")
             .take(36)
         return if (safe.isBlank()) "line_${System.nanoTime()}" else safe
+    }
+
+    private fun trimForSidebar(value: String, maxLen: Int): String {
+        val noQuotes = value.replace("\"", "").trim()
+        if (noQuotes.length <= maxLen) return noQuotes
+        return noQuotes.take(maxLen - 1) + "…"
     }
 
     private fun sanitizeToken(value: String): String {
@@ -192,7 +196,8 @@ object EventProgressHud {
     private fun runCommand(server: MinecraftServer, rawCommand: String): Boolean {
         val command = rawCommand.trim().removePrefix("/")
         return try {
-            server.commandManager.executeWithPrefix(server.commandSource, command)
+            val silent = server.commandSource.withSilent()
+            server.commandManager.executeWithPrefix(silent, command)
             true
         } catch (_: Exception) {
             false

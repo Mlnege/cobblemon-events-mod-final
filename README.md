@@ -34,7 +34,7 @@ Linux/macOS:
 
 ## 빌드 결과물
 ```text
-build/libs/cobblemon-events-2.1.0.jar
+build/libs/cobblemon-events-2.2.0.jar
 ```
 
 ## IntelliJ Community 원클릭 빌드

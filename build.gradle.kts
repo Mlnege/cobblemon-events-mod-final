@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.cobblemonevents"
-version = "2.1.0"
+version = "2.2.0"
 
 base {
     archivesName.set("cobblemon-events")

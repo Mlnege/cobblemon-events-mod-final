@@ -11,14 +11,17 @@ import com.cobblemonevents.util.SpawnHelper
 import net.minecraft.particle.ParticleTypes
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.network.ServerPlayerEntity
+import net.minecraft.server.world.ServerWorld
 import net.minecraft.util.math.BlockPos
 import net.minecraft.util.math.Box
+import java.util.UUID
 
 class LegendaryRaidEvent : EventHandler {
     companion object {
         private const val DATA_RAID_BOSS = "raidBoss"
         private const val DATA_BOSS_DEFEATED = "bossDefeated"
         private const val DATA_RAID_BATTLE_MODE = "raidBattleMode"
+        private const val DATA_RAID_BOSS_ENTITY_UUID = "raidBossEntityUuid"
 
         private const val RAID_BOSS_SCALE = 5.0f
         private const val RAID_BOSS_SEARCH_RADIUS = 32.0
@@ -41,11 +44,14 @@ class LegendaryRaidEvent : EventHandler {
         val shuffledBosses = bossPool.shuffled()
 
         var selectedBoss: RaidBossEntry? = null
+        var spawnedBossEntity: PokemonEntity? = null
         var raidBattleMode = false
 
         for (candidate in shuffledBosses) {
-            if (trySpawnRaidBattleBoss(server, pos, candidate.species)) {
+            val spawnedBoss = trySpawnRaidBattleBoss(server, pos, candidate.species)
+            if (spawnedBoss != null) {
                 selectedBoss = candidate
+                spawnedBossEntity = spawnedBoss
                 raidBattleMode = true
                 break
             }
@@ -63,6 +69,7 @@ class LegendaryRaidEvent : EventHandler {
                 if (spawned != null) {
                     applyRaidBossScale(spawned)
                     selectedBoss = candidate
+                    spawnedBossEntity = spawned
                     break
                 }
             }
@@ -80,13 +87,16 @@ class LegendaryRaidEvent : EventHandler {
         event.setData(DATA_RAID_BOSS, selectedBoss)
         event.setData(DATA_BOSS_DEFEATED, false)
         event.setData(DATA_RAID_BATTLE_MODE, raidBattleMode)
+        if (spawnedBossEntity != null) {
+            event.setData(DATA_RAID_BOSS_ENTITY_UUID, spawnedBossEntity.uuid.toString())
+        }
 
         BroadcastUtil.announceRaid(server, selectedBoss.displayName, pos.x, pos.y, pos.z)
 
         if (raidBattleMode) {
             BroadcastUtil.broadcast(
                 server,
-                "${CobblemonEventsMod.config.prefix}§bRaidDens 레이드 배틀 보스가 생성되었습니다. 여러 플레이어가 동시에 전투/포획을 시도할 수 있습니다."
+                "${CobblemonEventsMod.config.prefix}§bRaidDens 레이드 보스가 생성되었습니다. 동시 공격/동시 포획 시도가 가능합니다."
             )
         }
     }
@@ -142,6 +152,8 @@ class LegendaryRaidEvent : EventHandler {
             }
         }
 
+        val despawned = despawnRaidBoss(event, server.overworld)
+
         if (bossDefeated) {
             BroadcastUtil.announceEventEnd(
                 server,
@@ -149,7 +161,8 @@ class LegendaryRaidEvent : EventHandler {
                 listOf(
                     "§a§l보스를 처치했습니다!",
                     "§7보스: ${boss.displayName}",
-                    "참가자: ${event.participants.size}명"
+                    "참가자: ${event.participants.size}명",
+                    "이벤트 보스 디스폰: ${despawned}마리"
                 )
             )
 
@@ -179,7 +192,8 @@ class LegendaryRaidEvent : EventHandler {
                 listOf(
                     "§c§l시간 초과! 보스가 도주했습니다...",
                     "§7보스: ${boss.displayName}",
-                    "참가자: ${event.participants.size}명"
+                    "참가자: ${event.participants.size}명",
+                    "이벤트 보스 디스폰: ${despawned}마리"
                 )
             )
         }
@@ -223,7 +237,7 @@ class LegendaryRaidEvent : EventHandler {
         }
     }
 
-    private fun trySpawnRaidBattleBoss(server: MinecraftServer, pos: BlockPos, species: String): Boolean {
+    private fun trySpawnRaidBattleBoss(server: MinecraftServer, pos: BlockPos, species: String): PokemonEntity? {
         val speciesId = species.lowercase()
         val dimensionId = server.overworld.registryKey.value.toString()
         val commands = listOf(
@@ -248,11 +262,11 @@ class LegendaryRaidEvent : EventHandler {
 
                 applyRaidBossScale(spawnedBoss)
                 CobblemonEventsMod.LOGGER.info("[LegendaryRaid] Raid battle boss spawned: $command")
-                return true
+                return spawnedBoss
             }
         }
 
-        return false
+        return null
     }
 
     private fun executeServerCommand(server: MinecraftServer, rawCommand: String): Boolean {
@@ -277,6 +291,25 @@ class LegendaryRaidEvent : EventHandler {
 
         return server.overworld.getEntitiesByClass(PokemonEntity::class.java, searchBox) { entity ->
             entity.isAlive && entity.pokemon.species.name.equals(speciesId, ignoreCase = true)
+        }
+    }
+
+    private fun despawnRaidBoss(event: ActiveEvent, world: ServerWorld): Int {
+        val id = event.getData<String>(DATA_RAID_BOSS_ENTITY_UUID) ?: return 0
+        val uuid = try {
+            UUID.fromString(id)
+        } catch (_: IllegalArgumentException) {
+            null
+        } ?: return 0
+
+        val entity = world.getEntity(uuid)
+        event.setData(DATA_RAID_BOSS_ENTITY_UUID, "")
+
+        return if (entity is PokemonEntity && entity.isAlive) {
+            entity.discard()
+            1
+        } else {
+            0
         }
     }
 

@@ -1,5 +1,6 @@
-﻿package com.cobblemonevents.events.types
+package com.cobblemonevents.events.types
 
+import com.cobblemon.mod.common.entity.pokemon.PokemonEntity
 import com.cobblemonevents.CobblemonEventsMod
 import com.cobblemonevents.events.ActiveEvent
 import com.cobblemonevents.events.EventHandler
@@ -11,6 +12,8 @@ import net.minecraft.server.MinecraftServer
 import net.minecraft.server.network.ServerPlayerEntity
 import net.minecraft.server.world.ServerWorld
 import net.minecraft.util.math.BlockPos
+import net.minecraft.util.math.Box
+import java.util.UUID
 
 class UltraWormholeEvent : EventHandler {
 
@@ -21,11 +24,13 @@ class UltraWormholeEvent : EventHandler {
         private const val DATA_WORMHOLE_SPAWNED_BY_COMMAND = "wormholeSpawnedByCommand"
         private const val DATA_WORMHOLE_RESPAWN_LOCKED = "wormholeRespawnLocked"
         private const val DATA_ULTRA_SPACE_DIMENSION_IDS = "ultraSpaceDimensionIds"
+        private const val DATA_TRACKED_BEAST_ENTITY_UUIDS = "trackedWormholeBeastUuids"
+
         private const val WORMHOLE_HEIGHT_OFFSET = 12
         private const val WORMHOLE_KEEPALIVE_INTERVAL_TICKS = 20L * 30L
-        private val DEFAULT_ULTRA_SPACE_DIMENSION_IDS = setOf(
-            "ultrabeasts:ultra_space"
-        )
+        private const val WORMHOLE_BEAST_TRACK_RADIUS = 64.0
+
+        private val DEFAULT_ULTRA_SPACE_DIMENSION_IDS = setOf("ultrabeasts:ultra_space")
         private val SAFE_PLAYER_NAME = Regex("^[A-Za-z0-9_]{1,16}$")
     }
 
@@ -51,14 +56,12 @@ class UltraWormholeEvent : EventHandler {
         event.setData(DATA_SELECTED_BEASTS, selectedBeasts)
         event.setData(DATA_CAUGHT_BEASTS, mutableMapOf<String, Int>())
 
-        // 요청사항: 시작 시 콘솔에서 랜덤 플레이어 1명 기준으로 웜홀 스폰 명령 실행
         val spawnedByCommand = spawnWormholeForRandomPlayer(server, event)
         event.setData(DATA_WORMHOLE_SPAWNED_BY_COMMAND, spawnedByCommand)
         event.setData(DATA_WORMHOLE_RESPAWN_LOCKED, false)
 
-        // 명령 실행 실패 시에도 이벤트가 멈추지 않도록 기본 스폰으로 폴백
         if (!spawnedByCommand) {
-            SpawnHelper.spawnMultiplePokemon(
+            val spawned = SpawnHelper.spawnMultiplePokemon(
                 world = server.overworld,
                 speciesList = selectedBeasts,
                 centerPos = fallbackPos,
@@ -68,6 +71,7 @@ class UltraWormholeEvent : EventHandler {
                 levelMax = config.wormholeLevel + 5,
                 shinyChance = config.wormholeShinyChance
             )
+            rememberSpawnedBeasts(event, spawned)
         }
 
         val pos = event.eventLocation ?: fallbackPos
@@ -122,12 +126,10 @@ class UltraWormholeEvent : EventHandler {
         val world = server.overworld
         val spawnedByCommand = event.getData<Boolean>(DATA_WORMHOLE_SPAWNED_BY_COMMAND) == true
 
-        // 누군가 울트라 차원에 입장한 이후에는 재스폰을 잠가 차원 분리를 방지한다.
         if (spawnedByCommand && hasPlayersInUltraSpace(event, server)) {
             event.setData(DATA_WORMHOLE_RESPAWN_LOCKED, true)
         }
 
-        // 설정한 이벤트 시간 동안 유지가 필요하지만, 입장자가 생긴 뒤에는 동일 차원 보장을 위해 재스폰하지 않는다.
         val respawnLocked = event.getData<Boolean>(DATA_WORMHOLE_RESPAWN_LOCKED) == true
         if (spawnedByCommand && !respawnLocked && event.ticksRemaining > 0 && event.ticksRemaining % WORMHOLE_KEEPALIVE_INTERVAL_TICKS == 0L) {
             keepWormholeAlive(server, pos)
@@ -148,11 +150,15 @@ class UltraWormholeEvent : EventHandler {
         val selectedBeasts = event.getData<List<String>>(DATA_SELECTED_BEASTS) ?: return
 
         if (event.ticksRemaining > 0 && event.ticksRemaining % (20 * 240) == 0L) {
+            val beforeSpawnIds = findNearbyBeasts(world, pos, selectedBeasts)
+                .map { it.uuid.toString() }
+                .toSet()
+
             val addSpawnCommand = "ultrabeasts wormhole addspawn ${pos.x} ${pos.y} ${pos.z} 2"
             val addSpawnSuccess = executeServerCommand(server, addSpawnCommand)
 
             if (!addSpawnSuccess) {
-                SpawnHelper.spawnMultiplePokemon(
+                val spawned = SpawnHelper.spawnMultiplePokemon(
                     world = world,
                     speciesList = selectedBeasts,
                     centerPos = pos,
@@ -162,6 +168,9 @@ class UltraWormholeEvent : EventHandler {
                     levelMax = config.wormholeLevel + 5,
                     shinyChance = config.wormholeShinyChance
                 )
+                rememberSpawnedBeasts(event, spawned)
+            } else {
+                rememberNewNearbyBeasts(event, world, pos, selectedBeasts, beforeSpawnIds)
             }
 
             BroadcastUtil.broadcast(
@@ -174,11 +183,12 @@ class UltraWormholeEvent : EventHandler {
     override fun onEnd(event: ActiveEvent, server: MinecraftServer) {
         val config = event.definition.wormholeConfig ?: return
 
-        // 요청사항: 종료 시 콘솔에서 웜홀 정리 명령 실행
-        val clearSuccess = executeServerCommand(server, "ultrabeasts wormhole clear")
+        val clearSuccess = clearWormhole(server, event)
         if (!clearSuccess) {
-            CobblemonEventsMod.LOGGER.warn("[UltraWormhole] 웜홀 정리 명령 실행 실패: ultrabeasts wormhole clear")
+            CobblemonEventsMod.LOGGER.warn("[UltraWormhole] 웜홀 정리 명령이 모두 실패했습니다.")
         }
+
+        val despawned = despawnTrackedBeasts(event, server.overworld)
 
         for (playerUUID in event.participants.keys) {
             val player = server.playerManager.getPlayer(playerUUID) ?: continue
@@ -198,6 +208,7 @@ class UltraWormholeEvent : EventHandler {
             listOf(
                 "참가자: ${event.participants.size}명",
                 "포획한 울트라비스트: ${totalCaught}마리",
+                "이벤트 스폰 디스폰: ${despawned}마리",
                 "웜홀이 닫혔습니다."
             )
         )
@@ -235,6 +246,29 @@ class UltraWormholeEvent : EventHandler {
             CobblemonEventsMod.LOGGER.warn("[UltraWormhole] 명령 실행 중 오류: $command", e)
             false
         }
+    }
+
+    private fun clearWormhole(server: MinecraftServer, event: ActiveEvent): Boolean {
+        val pos = event.eventLocation
+        val commands = mutableListOf("ultrabeasts wormhole clear")
+
+        if (pos != null) {
+            commands += "execute in minecraft:overworld positioned ${pos.x + 0.5} ${pos.y.toDouble()} ${pos.z + 0.5} run ultrabeasts wormhole clear"
+        }
+
+        val targetPlayer = event.getData<String>(DATA_WORMHOLE_TARGET)
+        if (targetPlayer != null && SAFE_PLAYER_NAME.matches(targetPlayer)) {
+            commands += "execute as $targetPlayer at $targetPlayer run ultrabeasts wormhole clear"
+        }
+
+        var success = false
+        for (command in commands) {
+            val ok = executeServerCommand(server, command)
+            if (ok) {
+                success = true
+            }
+        }
+        return success
     }
 
     private fun keepWormholeAlive(server: MinecraftServer, pos: BlockPos) {
@@ -289,6 +323,65 @@ class UltraWormholeEvent : EventHandler {
         val trimmed = raw.trim().lowercase()
         if (trimmed.isEmpty()) return ""
         return if (":" in trimmed) trimmed else "minecraft:$trimmed"
+    }
+
+    private fun rememberSpawnedBeasts(event: ActiveEvent, spawned: List<PokemonEntity>) {
+        if (spawned.isEmpty()) return
+
+        val tracked = event.getData<MutableSet<String>>(DATA_TRACKED_BEAST_ENTITY_UUIDS) ?: mutableSetOf()
+        tracked.addAll(spawned.map { it.uuid.toString() })
+        event.setData(DATA_TRACKED_BEAST_ENTITY_UUIDS, tracked)
+    }
+
+    private fun rememberNewNearbyBeasts(
+        event: ActiveEvent,
+        world: ServerWorld,
+        pos: BlockPos,
+        speciesList: List<String>,
+        beforeSpawnIds: Set<String>
+    ) {
+        val newEntities = findNearbyBeasts(world, pos, speciesList)
+            .filter { it.uuid.toString() !in beforeSpawnIds }
+        rememberSpawnedBeasts(event, newEntities)
+    }
+
+    private fun findNearbyBeasts(world: ServerWorld, pos: BlockPos, speciesList: List<String>): List<PokemonEntity> {
+        val speciesSet = speciesList.map { it.lowercase() }.toSet()
+        val searchBox = Box(
+            pos.x.toDouble() - WORMHOLE_BEAST_TRACK_RADIUS,
+            pos.y.toDouble() - 32.0,
+            pos.z.toDouble() - WORMHOLE_BEAST_TRACK_RADIUS,
+            pos.x.toDouble() + WORMHOLE_BEAST_TRACK_RADIUS,
+            pos.y.toDouble() + 48.0,
+            pos.z.toDouble() + WORMHOLE_BEAST_TRACK_RADIUS
+        )
+
+        return world.getEntitiesByClass(PokemonEntity::class.java, searchBox) { entity ->
+            entity.isAlive && speciesSet.contains(entity.pokemon.species.name.lowercase())
+        }
+    }
+
+    private fun despawnTrackedBeasts(event: ActiveEvent, world: ServerWorld): Int {
+        val tracked = event.getData<MutableSet<String>>(DATA_TRACKED_BEAST_ENTITY_UUIDS) ?: return 0
+        var removed = 0
+
+        for (id in tracked) {
+            val uuid = try {
+                UUID.fromString(id)
+            } catch (_: IllegalArgumentException) {
+                null
+            } ?: continue
+
+            val entity = world.getEntity(uuid)
+            if (entity is PokemonEntity && entity.isAlive) {
+                entity.discard()
+                removed++
+            }
+        }
+
+        tracked.clear()
+        event.setData(DATA_TRACKED_BEAST_ENTITY_UUIDS, tracked)
+        return removed
     }
 
     private fun spawnWormholeParticles(world: ServerWorld, center: BlockPos) {

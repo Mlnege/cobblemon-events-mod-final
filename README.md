@@ -34,6 +34,16 @@ Linux/macOS:
 build/libs/cobblemon-events-2.1.0.jar
 ```
 
+## IntelliJ Community 원클릭 빌드
+1. IntelliJ에서 프로젝트를 `Open` (Gradle 프로젝트로 열기)
+2. 우측 Gradle 패널에서 `Reload All Gradle Projects` 1회 실행
+3. 상단 Run Configuration에서 `Gradle Build` 선택
+4. 실행(재생) 버튼 한 번으로 전체 `build` 수행
+
+참고:
+- Gradle은 Wrapper(`gradlew`) + Java 21(`#JAVA_HOME`) 기준으로 고정되어 있습니다.
+- Cobblemon JAR가 `libs/`에 없으면 `verifyCobblemonJar`가 바로 경고를 내고 빌드를 중단합니다.
+
 ## 주요 기능
 - 이벤트 스케줄 기반 자동 시작/종료
 - 전설 레이드: 보스 소환 검증, 보스 5배 스케일, 참가자 자동 인식 보정

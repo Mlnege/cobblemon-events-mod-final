@@ -19,6 +19,11 @@ val yarnMappings = "1.21.1+build.3"
 val loaderVersion = "0.16.0"
 val fabricApiVersion = "0.102.0+1.21.1"
 val fabricKotlinVersion = "1.13.4+kotlin.2.2.0"
+val cobblemonJar = sequenceOf(
+    layout.projectDirectory.file("libs/Cobblemon-fabric-1.7.3+1.21.1.jar").asFile,
+    layout.projectDirectory.file("libs/cobblemon-fabric-1.7.3+1.21.1.jar").asFile
+).firstOrNull { it.exists() }
+    ?: layout.projectDirectory.file("libs/Cobblemon-fabric-1.7.3+1.21.1.jar").asFile
 
 repositories {
     mavenCentral()
@@ -34,9 +39,7 @@ dependencies {
     modImplementation("net.fabricmc.fabric-api:fabric-api:$fabricApiVersion")
     modImplementation("net.fabricmc:fabric-language-kotlin:$fabricKotlinVersion")
 
-    modImplementation(fileTree("libs") {
-        include("*.jar")
-    })
+    modImplementation(files(cobblemonJar))
 }
 
 java {
@@ -57,4 +60,21 @@ tasks.withType<KotlinCompile>().configureEach {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_21)
     }
+}
+
+tasks.register("verifyCobblemonJar") {
+    group = "verification"
+    description = "Checks that local Cobblemon jar exists for dependency resolution."
+    doLast {
+        if (!cobblemonJar.exists()) {
+            throw GradleException(
+                "Missing local dependency: ${cobblemonJar.path}\n" +
+                    "Place Cobblemon jar in libs/ and sync Gradle again."
+            )
+        }
+    }
+}
+
+tasks.named("build") {
+    dependsOn("verifyCobblemonJar")
 }

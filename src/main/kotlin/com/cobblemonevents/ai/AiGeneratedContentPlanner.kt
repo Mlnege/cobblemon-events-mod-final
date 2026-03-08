@@ -227,10 +227,10 @@ object AiGeneratedContentPlanner {
         )
 
         if (advice != null) {
+            advisorUsed = true
             val advisedTemplate = topCandidates.firstOrNull { it.first.id == advice.preferredTemplateId }?.first
-            if (advisedTemplate != null && advice.confidence >= 0.35) {
+            if (advisedTemplate != null) {
                 selected = advisedTemplate
-                advisorUsed = true
             }
             target = (computeTarget(selected, players.size, averagePartyLevel) + advice.targetDelta).coerceIn(3, 28)
             advisorReason = advice.reason

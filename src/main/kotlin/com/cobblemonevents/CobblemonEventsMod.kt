@@ -1,6 +1,7 @@
 ﻿package com.cobblemonevents
 
 import com.cobblemonevents.ai.AiGeneratedContentPlanner
+import com.cobblemonevents.ai.AiProfileRegistry
 import com.cobblemonevents.commands.AiGeneratedContentCommand
 import com.cobblemonevents.commands.EventCommands
 import com.cobblemonevents.config.EventConfig
@@ -42,6 +43,7 @@ object CobblemonEventsMod : ModInitializer {
         LOGGER.info("[CobblemonEvents] v$VERSION 초기화 중...")
 
         config = EventConfig.load()
+        AiProfileRegistry.load()
         scheduler = EventScheduler()
         rankingManager = RankingManager()
 
@@ -64,6 +66,7 @@ object CobblemonEventsMod : ModInitializer {
             scheduler.onServerStopping()
             AiGeneratedContentPlanner.onServerStopping()
             rankingManager.save()
+            AiProfileRegistry.save()
             config.save()
             server = null
             LOGGER.info("[CobblemonEvents] 모드 종료.")

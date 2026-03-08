@@ -20,6 +20,7 @@ data class AiGeneratedDecision(
     val reason: String,
     val selectedEventId: String? = null,
     val selectedEventType: String? = null,
+    val selectedProfileId: String? = null,
     val playerCount: Int = 0,
     val averagePartyLevel: Double = 0.0,
     val timCoreTaggedNearby: Int = 0,
@@ -153,13 +154,14 @@ object AiGeneratedContentPlanner {
         for (source in dataSources) {
             source.enrich(server, players, dataContext)
         }
+        val selectedProfile = AiProfileRegistry.pickEnabledProfile()
 
         val candidates = CobblemonEventsMod.config.events
             .asSequence()
             .filter { it.enabled && addonSupportedTypes.contains(it.eventType) }
             .filter { it.requiredPlayerCount <= players.size }
             .filter { ignoreCooldown || !isOnCooldown(it) }
-            .map { def -> def to score(def, players.size, averagePartyLevel, dataContext) }
+            .map { def -> def to score(def, players.size, averagePartyLevel, dataContext, selectedProfile) }
             .sortedByDescending { it.second }
             .toList()
 
@@ -167,6 +169,7 @@ object AiGeneratedContentPlanner {
             val decision = AiGeneratedDecision(
                 executed = false,
                 reason = if (ignoreCooldown) "no_supported_addon_candidates" else "all_addon_candidates_on_cooldown",
+                selectedProfileId = selectedProfile?.id,
                 playerCount = players.size,
                 averagePartyLevel = averagePartyLevel,
                 timCoreTaggedNearby = dataContext.timCoreTaggedNearby,
@@ -185,6 +188,7 @@ object AiGeneratedContentPlanner {
                 reason = "preview",
                 selectedEventId = selected.id,
                 selectedEventType = selected.eventType,
+                selectedProfileId = selectedProfile?.id,
                 playerCount = players.size,
                 averagePartyLevel = averagePartyLevel,
                 timCoreTaggedNearby = dataContext.timCoreTaggedNearby,
@@ -204,13 +208,14 @@ object AiGeneratedContentPlanner {
             BroadcastUtil.broadcast(
                 server,
                 "${CobblemonEventsMod.config.prefix}[AI Addon] '${selected.displayName}' 보조 월드 이벤트를 시작했습니다. " +
-                    "(지속 ${ADDON_DURATION_MINUTES}분, 플레이어:${players.size}, 평균 레벨:${averagePartyLevel.roundToInt()}, tim_core 태그:${dataContext.timCoreTaggedNearby})"
+                    "(지속 ${ADDON_DURATION_MINUTES}분, 프로필:${selectedProfile?.id ?: "none"}, 플레이어:${players.size}, 평균 레벨:${averagePartyLevel.roundToInt()}, tim_core 태그:${dataContext.timCoreTaggedNearby})"
             )
             AiGeneratedDecision(
                 executed = true,
                 reason = "started",
                 selectedEventId = selected.id,
                 selectedEventType = selected.eventType,
+                selectedProfileId = selectedProfile?.id,
                 playerCount = players.size,
                 averagePartyLevel = averagePartyLevel,
                 timCoreTaggedNearby = dataContext.timCoreTaggedNearby,
@@ -222,6 +227,7 @@ object AiGeneratedContentPlanner {
                 reason = "scheduler_rejected_start",
                 selectedEventId = selected.id,
                 selectedEventType = selected.eventType,
+                selectedProfileId = selectedProfile?.id,
                 playerCount = players.size,
                 averagePartyLevel = averagePartyLevel,
                 timCoreTaggedNearby = dataContext.timCoreTaggedNearby,
@@ -284,7 +290,8 @@ object AiGeneratedContentPlanner {
         def: EventDefinition,
         playerCount: Int,
         averagePartyLevel: Double,
-        context: PlannerDataContext
+        context: PlannerDataContext,
+        selectedProfile: AiProfileEntry?
     ): Double {
         val targetLevel = when (def.eventType) {
             "LEGENDARY_RAID" -> 70.0
@@ -325,6 +332,16 @@ object AiGeneratedContentPlanner {
                 }
             } else {
                 score += 2.0
+            }
+        }
+
+        if (selectedProfile != null) {
+            val prompt = selectedProfile.prompt.lowercase()
+            if ((prompt.contains("explorer") || prompt.contains("탐험")) && def.eventType == "EXPLORER") {
+                score += 8.0
+            }
+            if ((prompt.contains("lucky") || prompt.contains("행운")) && def.eventType == "LUCKY_EVENT") {
+                score += 8.0
             }
         }
 

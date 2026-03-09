@@ -30,8 +30,7 @@ object ExternalModApiRegistry {
         ApiSpec("generations-core", "Generations Core", "체육관 배지 보상"),
         ApiSpec("aps_trophies", "APS Trophies", "리그 트로피 보상"),
         ApiSpec("apstrophy", "APS Trophies", "리그 트로피 보상"),
-        ApiSpec("cobblemontrainers", "Cobblemon Trainers", "체육관/NPC 배틀"),
-        ApiSpec("cobblemon_trainers", "Cobblemon Trainers", "체육관/NPC 배틀")
+        ApiSpec("cobblemontrainerbattle", "Cobblemon Trainer Battle", "체육관/NPC 배틀")
     )
 
     fun getStatuses(): List<ApiStatus> {
@@ -103,4 +102,3 @@ object ExternalModApiRegistry {
         }
     }
 }
-

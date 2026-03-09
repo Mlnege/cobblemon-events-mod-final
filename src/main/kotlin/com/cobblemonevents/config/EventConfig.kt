@@ -242,7 +242,7 @@ data class UltraWormholeConfig(
 /** 체육관 커스텀 이벤트 설정 */
 data class GymIntegrationCommand(
     val id: String = "spawn_gym_leader",
-    val requiredMods: List<String> = listOf("cobblemontrainers", "cobblemon_trainers"),
+    val requiredMods: List<String> = listOf("cobblemontrainerbattle"),
     val command: String = "say [체육관 연동] {type_name} 리더 소환 커맨드를 설정하세요."
 )
 

@@ -16,9 +16,13 @@ data class AiProfileEntry(
 data class AiProfileConfig(
     var conceptPrompt: String = "Base schedule first. AI runs only as a lightweight addon.",
     var dynamicEventDurationMinutes: Int = 5,
+    var autoPlanIntervalMinutesMin: Int = 15,
+    var autoPlanIntervalMinutesMax: Int = 30,
     var autoStartupProfessionalPrompt: Boolean = true,
     var forceOverwriteStartupPrompt: Boolean = true,
     var startupPromptProfile: String = "pokemon_server_ops_v1_ko",
+    var promptTemplateCatalogEnabled: Boolean = true,
+    var promptTemplateCatalogBatchSize: Int = 80,
     var advisor: AiExternalAdvisorConfig = AiExternalAdvisorConfig(),
     var profiles: MutableList<AiProfileEntry> = mutableListOf(
         AiProfileEntry(
@@ -94,6 +98,54 @@ object AiProfileRegistry {
             val configured = config.dynamicEventDurationMinutes
             if (configured <= 0) return 5
             return configured.coerceAtMost(20)
+        }
+    }
+
+    fun getAutoPlanIntervalRangeMinutes(): Pair<Int, Int> {
+        synchronized(this) {
+            ensureLoaded()
+            val min = config.autoPlanIntervalMinutesMin.coerceIn(1, 180)
+            val max = config.autoPlanIntervalMinutesMax.coerceIn(1, 180)
+            return if (min <= max) {
+                min to max
+            } else {
+                max to min
+            }
+        }
+    }
+
+    fun setAutoPlanIntervalFixed(minutes: Int) {
+        synchronized(this) {
+            ensureLoaded()
+            val safe = minutes.coerceIn(1, 180)
+            config.autoPlanIntervalMinutesMin = safe
+            config.autoPlanIntervalMinutesMax = safe
+            save()
+        }
+    }
+
+    fun setAutoPlanIntervalRange(minMinutes: Int, maxMinutes: Int) {
+        synchronized(this) {
+            ensureLoaded()
+            val a = minMinutes.coerceIn(1, 180)
+            val b = maxMinutes.coerceIn(1, 180)
+            config.autoPlanIntervalMinutesMin = minOf(a, b)
+            config.autoPlanIntervalMinutesMax = maxOf(a, b)
+            save()
+        }
+    }
+
+    fun isPromptTemplateCatalogEnabled(): Boolean {
+        synchronized(this) {
+            ensureLoaded()
+            return config.promptTemplateCatalogEnabled
+        }
+    }
+
+    fun getPromptTemplateCatalogBatchSize(): Int {
+        synchronized(this) {
+            ensureLoaded()
+            return config.promptTemplateCatalogBatchSize.coerceIn(20, 120)
         }
     }
 

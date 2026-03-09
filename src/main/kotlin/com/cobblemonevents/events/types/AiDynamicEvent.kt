@@ -18,6 +18,11 @@ class AiDynamicEvent : EventHandler {
         private const val KEY_TARGET = "ai_dynamic_target"
         private const val KEY_TEMPLATE = "ai_dynamic_template_id"
         private const val KEY_PROFILE = "ai_dynamic_profile"
+        private const val KEY_SOURCE = "ai_dynamic_source"
+        private const val KEY_THEME_TYPE = "ai_dynamic_theme_type"
+        private const val KEY_TARGET_BIOME = "ai_dynamic_target_biome"
+        private const val KEY_CORE_MECHANISM = "ai_dynamic_core_mechanism"
+        private const val KEY_SPECIAL_ENCOUNTER = "ai_dynamic_special_encounter"
         private const val KEY_VARIETY_MAP = "ai_dynamic_variety_map"
         private const val KEY_PARTICIPANTS = "ai_dynamic_participants"
         private const val KEY_REWARDED_PLAYERS = "ai_dynamic_rewarded_players"
@@ -28,6 +33,11 @@ class AiDynamicEvent : EventHandler {
         val target = event.getData<Int>(KEY_TARGET) ?: 8
         val template = event.getData<String>(KEY_TEMPLATE) ?: "unknown"
         val profile = event.getData<String>(KEY_PROFILE) ?: "none"
+        val source = event.getData<String>(KEY_SOURCE) ?: "internal"
+        val themeType = event.getData<String>(KEY_THEME_TYPE)?.takeIf { it.isNotBlank() }
+        val targetBiome = event.getData<String>(KEY_TARGET_BIOME)?.takeIf { it.isNotBlank() }
+        val coreMechanism = event.getData<String>(KEY_CORE_MECHANISM)?.takeIf { it.isNotBlank() }
+        val specialEncounter = event.getData<String>(KEY_SPECIAL_ENCOUNTER)?.takeIf { it.isNotBlank() }
 
         event.setData(KEY_PARTICIPANTS, ConcurrentHashMap.newKeySet<UUID>())
         event.setData(KEY_REWARDED_PLAYERS, ConcurrentHashMap.newKeySet<UUID>())
@@ -36,17 +46,28 @@ class AiDynamicEvent : EventHandler {
             event.setData(KEY_VARIETY_MAP, ConcurrentHashMap<UUID, MutableSet<String>>())
         }
 
+        val lines = mutableListOf(
+            "미션: ${modeToDisplay(mode)}",
+            "목표: ${target}회",
+            "완료 보상: AI 밸런스 보상 지급",
+            "템플릿: $template / 프로필: $profile / 소스: $source"
+        )
+        if (!themeType.isNullOrBlank() || !targetBiome.isNullOrBlank()) {
+            lines.add("테마: ${themeType ?: "-"} / 바이옴: ${targetBiome ?: "-"}")
+        }
+        if (!specialEncounter.isNullOrBlank()) {
+            lines.add("특수 조우: $specialEncounter")
+        }
+        if (!coreMechanism.isNullOrBlank()) {
+            lines.add("메커니즘: ${coreMechanism.take(64)}")
+        }
+
         BroadcastUtil.announceEventStart(
             server,
             event.definition.displayName,
             event.definition.description,
             event.definition.durationMinutes,
-            listOf(
-                "미션: ${modeToDisplay(mode)}",
-                "목표: ${target}회",
-                "완료 보상: AI 밸런스 보상 지급",
-                "템플릿: $template / 프로필: $profile"
-            )
+            lines
         )
     }
 

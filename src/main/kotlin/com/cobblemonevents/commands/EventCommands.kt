@@ -88,6 +88,15 @@ object EventCommands {
                     .requires { it.hasPermissionLevel(2) }
                     .executes { skipEvent(it, "eventId") }
             ))
+            .then(literal("continue").then(
+                argument("eventId", StringArgumentType.word())
+                    .suggests { _, b ->
+                        CobblemonEventsMod.config.events.forEach { b.suggest(it.id) }
+                        b.buildFuture()
+                    }
+                    .requires { it.hasPermissionLevel(2) }
+                    .executes { continueEvent(it, "eventId") }
+            ))
             .then(literal("reload").requires { it.hasPermissionLevel(2) }.executes { reloadConfig(it) })
             .then(literal("stats").executes { showStats(it) })
             .then(literal("ranking").executes { showRanking(it) })
@@ -130,6 +139,15 @@ object EventCommands {
                     .requires { it.hasPermissionLevel(2) }
                     .executes { skipEvent(it, "id") }
             ))
+            .then(literal("continue").then(
+                argument("id", StringArgumentType.word())
+                    .suggests { _, b ->
+                        CobblemonEventsMod.config.events.forEach { b.suggest(it.id) }
+                        b.buildFuture()
+                    }
+                    .requires { it.hasPermissionLevel(2) }
+                    .executes { continueEvent(it, "id") }
+            ))
             .then(literal("reload").requires { it.hasPermissionLevel(2) }.executes { reloadConfig(it) })
             .then(literal("uw")
                 .requires { it.hasPermissionLevel(2) }
@@ -137,6 +155,18 @@ object EventCommands {
                 .then(literal("close").executes { closeUltraWormhole(it) })
             )
             .executes { showHelp(it) }
+        )
+
+        dispatcher.register(literal("\uC774\uBCA4\uD2B8")
+            .then(literal("\uACC4\uC18D").then(
+                argument("eventId", StringArgumentType.word())
+                    .suggests { _, b ->
+                        CobblemonEventsMod.config.events.forEach { b.suggest(it.id) }
+                        b.buildFuture()
+                    }
+                    .requires { it.hasPermissionLevel(2) }
+                    .executes { continueEvent(it, "eventId") }
+            ))
         )
 
         CobblemonEventsMod.LOGGER.info("[코블몬 이벤트] 커맨드 등록: /이벤트, /event, /ce")
@@ -257,6 +287,24 @@ object EventCommands {
             source.sendError(Text.literal("${prefix}§c'${eventId}' 이벤트를 찾을 수 없거나 건너뛸 수 없습니다."))
         }
         return if (success) 1 else 0
+    }
+
+    private fun continueEvent(ctx: CommandContext<ServerCommandSource>, argName: String): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        val eventId = StringArgumentType.getString(ctx, argName)
+
+        val result = CobblemonEventsMod.scheduler.continueNowAndKeepRotation(eventId, source.server)
+        return if (result.success) {
+            source.sendFeedback(
+                { Text.literal("${prefix}[계속] '${eventId}' 즉시 시작, 다음 회차 ${result.nextDelayMinutes}분 후 예약") },
+                true
+            )
+            1
+        } else {
+            source.sendError(Text.literal("${prefix}[계속] '${eventId}' 실패 (${result.reason})"))
+            0
+        }
     }
 
     private fun reloadConfig(ctx: CommandContext<ServerCommandSource>): Int {

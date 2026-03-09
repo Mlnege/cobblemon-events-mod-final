@@ -97,20 +97,29 @@ object SpawnHelper {
         shinyChance: Double = 0.0
     ): List<PokemonEntity> {
         val spawned = mutableListOf<PokemonEntity>()
+        val targetCount = count.coerceAtLeast(0)
+        if (targetCount == 0 || speciesList.isEmpty()) return spawned
 
-        for (i in 0 until count) {
-            val species = speciesList.random()
+        // 실패 케이스(지형/청크/엔티티 충돌)를 보완하되, 과부하를 막기 위해 시도 수 상한을 둔다.
+        var attempts = 0
+        val maxAttempts = (targetCount * 8).coerceAtLeast(targetCount).coerceAtMost(120)
+        while (spawned.size < targetCount && attempts < maxAttempts) {
+            attempts++
+            val species = speciesList.random().trim().lowercase()
+            if (species.isBlank()) continue
+
             val level = Random.nextInt(levelMin, levelMax + 1)
             val isShiny = Random.nextDouble() < shinyChance
-
-            // 스폰 위치를 중심으로 분산
             val offsetX = Random.nextInt(-radius, radius + 1)
             val offsetZ = Random.nextInt(-radius, radius + 1)
             val x = centerPos.x + offsetX
             val z = centerPos.z + offsetZ
+
+            // 로드되지 않은 청크는 건너뛰어 자연 스폰 이벤트의 실효 소환 수를 높인다.
+            if (!world.isChunkLoaded(x shr 4, z shr 4)) continue
+
             val topY = world.getTopY(Heightmap.Type.MOTION_BLOCKING, x, z)
             val spawnPos = BlockPos(x, topY, z)
-
             val entity = spawnPokemon(world, species, spawnPos, level, isShiny)
             if (entity != null) {
                 spawned.add(entity)
@@ -118,8 +127,8 @@ object SpawnHelper {
         }
 
         CobblemonEventsMod.LOGGER.info(
-            "[코블몬 이벤트] ${spawned.size}/${count} 포켓몬 스폰 완료 " +
-            "(중심: ${centerPos.x}, ${centerPos.z})"
+            "[코블몬 이벤트] ${spawned.size}/${targetCount} 포켓몬 스폰 완료 " +
+                "(중심: ${centerPos.x}, ${centerPos.z}, 시도: ${attempts}/${maxAttempts})"
         )
         return spawned
     }
@@ -139,3 +148,4 @@ object SpawnHelper {
         return positions
     }
 }
+

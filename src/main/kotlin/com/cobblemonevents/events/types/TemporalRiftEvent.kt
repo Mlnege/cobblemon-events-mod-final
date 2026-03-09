@@ -66,7 +66,7 @@ class TemporalRiftEvent : EventHandler {
                 "gastly", "haunter", "gengar", "misdreavus", "mismagius", "litwick", "lampent", "chandelure", "dreepy", "drakloak", "dragapult", "greavard", "houndstone"
             )),
             RiftTypeEntry("dragon", "§5드래곤 타입 균열", listOf("dragon"), listOf(
-                "dratini", "dragonair", "dragonite", "bagon", "shelgon", "salamence", "gible", "gabite", "garchomp", "deino", "zweilous", "hydreigon", "goomy", "sliggoo", "goodra", "jangmoo", "hakamoo", "kommoo", "frigibax", "arctibax", "baxcalibur"
+                "dratini", "dragonair", "dragonite", "bagon", "shelgon", "salamence", "gible", "gabite", "garchomp", "deino", "zweilous", "hydreigon", "goomy", "sliggoo", "goodra", "jangmo-o", "hakamo-o", "kommo-o", "frigibax", "arctibax", "baxcalibur"
             )),
             RiftTypeEntry("dark", "§1악 타입 균열", listOf("dark"), listOf(
                 "murkrow", "honchkrow", "houndour", "houndoom", "pawniard", "bisharp", "kingambit", "deino", "zweilous", "hydreigon", "sneasel", "weavile", "maschiff", "mabosstiff"

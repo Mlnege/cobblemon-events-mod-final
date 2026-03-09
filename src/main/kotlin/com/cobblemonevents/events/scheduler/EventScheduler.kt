@@ -1,6 +1,7 @@
 package com.cobblemonevents.events.scheduler
 
 import com.cobblemonevents.CobblemonEventsMod
+import com.cobblemonevents.ai.AiGeneratedContentPlanner
 import com.cobblemonevents.config.EventDefinition
 import com.cobblemonevents.config.ExplorerOverrideConfig
 import com.cobblemonevents.events.ActiveEvent
@@ -13,6 +14,16 @@ import net.minecraft.server.network.ServerPlayerEntity
 import java.util.concurrent.ConcurrentHashMap
 
 class EventScheduler {
+    data class ContinueStartResult(
+        val success: Boolean,
+        val reason: String,
+        val nextDelayMinutes: Int = 0
+    )
+
+    companion object {
+        private const val DATA_NEXT_REPEAT_DELAY_TICKS = "ce_next_repeat_delay_ticks"
+        private const val TICKS_PER_MINUTE = 20L * 60L
+    }
 
     private val activeEvents = ConcurrentHashMap<String, ActiveEvent>()
     private val handlers = mutableMapOf<String, EventHandler>()
@@ -95,10 +106,10 @@ class EventScheduler {
     private fun scheduleEvent(def: EventDefinition, isRepeat: Boolean = false) {
         val delayMinutes = effectiveDelayMinutes(def, isRepeat)
         val durationMinutes = effectiveDurationMinutes(def)
-        val delayTicks = delayMinutes.toLong() * 20L * 60L
+        val delayTicks = delayMinutes.toLong() * TICKS_PER_MINUTE
 
         val announceTicks = if (def.announceBeforeMinutes > 0) {
-            delayTicks - (def.announceBeforeMinutes.toLong() * 20L * 60L)
+            delayTicks - (def.announceBeforeMinutes.toLong() * TICKS_PER_MINUTE)
         } else {
             delayTicks
         }
@@ -107,7 +118,7 @@ class EventScheduler {
             definition = def,
             state = EventState.WAITING,
             ticksUntilStart = delayTicks,
-            ticksRemaining = durationMinutes.toLong() * 20L * 60L,
+            ticksRemaining = durationMinutes.toLong() * TICKS_PER_MINUTE,
             ticksUntilAnnounce = maxOf(announceTicks, 0L)
         )
 
@@ -117,6 +128,31 @@ class EventScheduler {
         CobblemonEventsMod.LOGGER.info(
             "[스케줄러] '${def.id}' $logPrefix 스케줄 등록 " +
                     "(${if (isRepeat) def.intervalMinutes else def.startDelayMinutes}분 후 시작)"
+        )
+    }
+
+    private fun scheduleEventWithDelayTicks(def: EventDefinition, delayTicksInput: Long) {
+        val durationMinutes = effectiveDurationMinutes(def)
+        val delayTicks = delayTicksInput.coerceAtLeast(20L)
+        val announceLeadTicks = def.announceBeforeMinutes.toLong() * TICKS_PER_MINUTE
+        val announceTicks = if (def.announceBeforeMinutes > 0 && delayTicks > announceLeadTicks) {
+            delayTicks - announceLeadTicks
+        } else {
+            delayTicks
+        }
+
+        val event = ActiveEvent(
+            definition = def,
+            state = EventState.WAITING,
+            ticksUntilStart = delayTicks,
+            ticksRemaining = durationMinutes.toLong() * TICKS_PER_MINUTE,
+            ticksUntilAnnounce = maxOf(announceTicks, 0L)
+        )
+
+        activeEvents[def.id] = event
+        val delayMinutesCeil = ((delayTicks + TICKS_PER_MINUTE - 1L) / TICKS_PER_MINUTE).toInt()
+        CobblemonEventsMod.LOGGER.info(
+            "[Scheduler] '${def.id}' custom schedule registered (${delayMinutesCeil}m later)"
         )
     }
 
@@ -267,13 +303,20 @@ class EventScheduler {
         )
 
         if (reschedule) {
-            scheduleEvent(event.definition, isRepeat = true)
+            val nextRepeatDelayTicks = event.getData<Long>(DATA_NEXT_REPEAT_DELAY_TICKS)
+            if (nextRepeatDelayTicks != null && nextRepeatDelayTicks > 0L) {
+                scheduleEventWithDelayTicks(event.definition, nextRepeatDelayTicks)
+            } else {
+                scheduleEvent(event.definition, isRepeat = true)
+            }
         } else {
             activeEvents.remove(event.definition.id)
         }
     }
 
     fun onPokemonCaught(player: ServerPlayerEntity, species: String) {
+        AiGeneratedContentPlanner.recordPlayerCatch(player, species)
+
         for ((_, event) in activeEvents) {
             if (event.state != EventState.ACTIVE) continue
             val handler = handlers[event.definition.eventType] ?: continue
@@ -287,6 +330,8 @@ class EventScheduler {
     }
 
     fun onBattleWon(player: ServerPlayerEntity, defeatedSpecies: String) {
+        AiGeneratedContentPlanner.recordPlayerBattle(player, defeatedSpecies)
+
         for ((_, event) in activeEvents) {
             if (event.state != EventState.ACTIVE) continue
             val handler = handlers[event.definition.eventType] ?: continue
@@ -428,6 +473,53 @@ class EventScheduler {
             }
             EventState.ENDED -> false
         }
+    }
+
+    fun continueNowAndKeepRotation(eventId: String, server: MinecraftServer): ContinueStartResult {
+        val def = CobblemonEventsMod.config.events.find { it.id == eventId }
+            ?: return ContinueStartResult(false, "not_found")
+        if (!def.enabled) return ContinueStartResult(false, "disabled")
+        if (!handlers.containsKey(def.eventType)) return ContinueStartResult(false, "unsupported_type")
+
+        val existing = activeEvents[eventId]
+        if (existing?.state == EventState.ACTIVE) {
+            return ContinueStartResult(false, "already_active")
+        }
+
+        val intervalMinutes = effectiveDelayMinutes(def, isRepeat = true).coerceAtLeast(1)
+        val intervalTicks = intervalMinutes.toLong() * TICKS_PER_MINUTE
+        val remainUntilCurrentSlotTicks = when (existing?.state) {
+            EventState.WAITING, EventState.ANNOUNCED -> existing.ticksUntilStart.coerceAtLeast(0L)
+            else -> intervalTicks
+        }
+        val nextDelayTicks = (remainUntilCurrentSlotTicks + intervalTicks).coerceAtLeast(intervalTicks)
+
+        if (existing != null) {
+            activeEvents.remove(eventId)
+        }
+
+        val event = ActiveEvent(
+            definition = def,
+            state = EventState.WAITING,
+            ticksUntilStart = 1L,
+            ticksRemaining = effectiveDurationMinutes(def).toLong() * TICKS_PER_MINUTE,
+            ticksUntilAnnounce = 0L
+        )
+        event.setData(DATA_NEXT_REPEAT_DELAY_TICKS, nextDelayTicks)
+        activeEvents[eventId] = event
+
+        tryStartEvent(event, server, ignorePlayerRequirement = true)
+        if (event.state != EventState.ACTIVE) {
+            activeEvents.remove(eventId)
+            scheduleEvent(def, isRepeat = true)
+            return ContinueStartResult(false, "start_failed")
+        }
+
+        val nextDelayMinutes = ((nextDelayTicks + TICKS_PER_MINUTE - 1L) / TICKS_PER_MINUTE).toInt()
+        CobblemonEventsMod.LOGGER.info(
+            "[Scheduler] continue command started '$eventId' now, next reserved in ${nextDelayMinutes}m"
+        )
+        return ContinueStartResult(true, "started", nextDelayMinutes)
     }
 
     fun getActiveEvents(): List<ActiveEvent> =

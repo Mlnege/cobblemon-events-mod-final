@@ -31,6 +31,22 @@ object AiGeneratedContentCommand {
                 .then(literal("enable").executes { setAutoMode(it, true) })
                 .then(literal("disable").executes { setAutoMode(it, false) })
                 .then(literal("status").executes { status(it) })
+                .then(
+                    literal("interval")
+                        .executes { showInterval(it) }
+                        .then(argument("minutes", IntegerArgumentType.integer(1, 180)).executes { setIntervalFixed(it) })
+                        .then(
+                            literal("range")
+                                .then(argument("min", IntegerArgumentType.integer(1, 180))
+                                    .then(argument("max", IntegerArgumentType.integer(1, 180)).executes {
+                                        setIntervalRange(it)
+                                    })
+                                )
+                        )
+                )
+                .then(literal("nextgen")
+                    .then(literal("status").executes { nextGenStatus(it) })
+                )
                 .then(literal("concept")
                     .executes { showConcept(it) }
                     .then(argument("prompt", StringArgumentType.greedyString()).executes { setConcept(it) })
@@ -117,6 +133,43 @@ object AiGeneratedContentCommand {
         val prefix = CobblemonEventsMod.config.prefix
         val line = AiGeneratedContentPlanner.getStatusLine()
         source.sendFeedback({ Text.literal("${prefix}[AI] $line") }, false)
+        return 1
+    }
+
+    private fun nextGenStatus(ctx: CommandContext<ServerCommandSource>): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        val line = AiGeneratedContentPlanner.getNextGenReservationLine()
+        source.sendFeedback({ Text.literal("${prefix}[AI NextGen] $line") }, false)
+        return 1
+    }
+
+    private fun showInterval(ctx: CommandContext<ServerCommandSource>): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        val (min, max) = AiGeneratedContentPlanner.getAutoPlanIntervalRangeMinutes()
+        val text = if (min == max) "${min}m (fixed)" else "${min}-${max}m (random)"
+        source.sendFeedback({ Text.literal("${prefix}[AI] auto interval: $text") }, false)
+        return 1
+    }
+
+    private fun setIntervalFixed(ctx: CommandContext<ServerCommandSource>): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        val minutes = IntegerArgumentType.getInteger(ctx, "minutes")
+        AiGeneratedContentPlanner.setAutoPlanIntervalFixed(minutes)
+        source.sendFeedback({ Text.literal("${prefix}[AI] auto interval set to ${minutes}m (fixed)") }, true)
+        return 1
+    }
+
+    private fun setIntervalRange(ctx: CommandContext<ServerCommandSource>): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        val min = IntegerArgumentType.getInteger(ctx, "min")
+        val max = IntegerArgumentType.getInteger(ctx, "max")
+        AiGeneratedContentPlanner.setAutoPlanIntervalRange(min, max)
+        val (safeMin, safeMax) = AiGeneratedContentPlanner.getAutoPlanIntervalRangeMinutes()
+        source.sendFeedback({ Text.literal("${prefix}[AI] auto interval set to ${safeMin}-${safeMax}m") }, true)
         return 1
     }
 

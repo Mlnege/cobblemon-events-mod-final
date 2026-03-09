@@ -14,6 +14,12 @@
         "adapter": "kotlin",
         "value": "com.cobblemonevents.CobblemonEventsMod"
       }
+    ],
+    "client": [
+      {
+        "adapter": "kotlin",
+        "value": "com.cobblemonevents.client.CobblemonEventsClient"
+      }
     ]
   },
   "mixins": [],

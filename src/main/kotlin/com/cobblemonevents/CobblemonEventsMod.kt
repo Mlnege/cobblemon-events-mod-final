@@ -9,12 +9,14 @@ import com.cobblemonevents.config.RuntimeConfigAutoReloader
 import com.cobblemonevents.events.scheduler.EventScheduler
 import com.cobblemonevents.integration.CobblemonHooks
 import com.cobblemonevents.integration.ExternalModApiRegistry
+import com.cobblemonevents.network.payload.EventFxPayloads
 import com.cobblemonevents.util.EventProgressHud
 import com.cobblemonevents.util.RankingManager
 import net.fabricmc.api.ModInitializer
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents
 import net.minecraft.server.MinecraftServer
 import org.slf4j.LoggerFactory
 
@@ -47,6 +49,7 @@ object CobblemonEventsMod : ModInitializer {
 
         config = EventConfig.load()
         AiProfileRegistry.load()
+        EventFxPayloads.registerPayloadTypes()
         scheduler = EventScheduler()
         rankingManager = RankingManager()
 
@@ -79,6 +82,10 @@ object CobblemonEventsMod : ModInitializer {
             config.save()
             server = null
             LOGGER.info("[CobblemonEvents] 모드 종료.")
+        }
+
+        ServerPlayConnectionEvents.JOIN.register { handler, _, _ ->
+            scheduler.onPlayerJoin(handler.player)
         }
 
         ServerTickEvents.END_SERVER_TICK.register { srv ->

@@ -9,7 +9,6 @@ import com.cobblemonevents.integration.DatapackStructureService
 import com.cobblemonevents.rewards.RewardManager
 import com.cobblemonevents.util.BroadcastUtil
 import com.cobblemonevents.util.SpawnHelper
-import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.block.Block
 import net.minecraft.block.BlockState
 import net.minecraft.block.Blocks
@@ -82,8 +81,6 @@ class TemporalRiftEvent : EventHandler {
         private const val DATA_RIFT_SYNTHETIC_PORTAL_EXIT = "riftSyntheticPortalExit"
         private const val DATA_RIFT_SYNTHETIC_PORTAL_COOLDOWN = "riftSyntheticPortalCooldown"
         private const val MISSION_CLEAR_CATCH_COUNT = 2
-        private const val IMMERSIVE_PORTALS_MOD_ID = "immersive_portals"
-        private const val IMMERSIVE_PORTALS_CONTINUED_MOD_ID = "immersive_portals_continued"
         private const val OVERWORLD_DIMENSION_ID = "minecraft:overworld"
         private const val RIFT_REALM_DIMENSION_ID = "minecraft:the_end"
         private const val RIFT_ARENA_Y = 96
@@ -188,7 +185,7 @@ class TemporalRiftEvent : EventHandler {
         event.setData(DATA_RIFT_LAST_OUTSIDE_POINTS, mutableMapOf<String, RiftReturnSnapshot>())
         event.setData(DATA_RIFT_RETURN_POINTS, mutableMapOf<String, RiftReturnSnapshot>())
 
-        val portalEnabled = isImmersivePortalsLoaded()
+        val portalEnabled = false
         val riftWorld = findWorldById(server, RIFT_REALM_DIMENSION_ID)
 
         val (spawnWorld, spawnCenter) = if (riftWorld != null) {
@@ -235,7 +232,7 @@ class TemporalRiftEvent : EventHandler {
             if (!portalEnabled) {
                 BroadcastUtil.broadcast(
                     server,
-                    "${CobblemonEventsMod.config.prefix}§7Immersive Portals 미설치 - 오버월드 방식으로 진행합니다."
+                    "${CobblemonEventsMod.config.prefix}§7차원 포탈 모드 없이 오버월드 방식으로 진행합니다."
                 )
             } else {
                 BroadcastUtil.broadcast(
@@ -823,53 +820,11 @@ class TemporalRiftEvent : EventHandler {
         realmCenter: BlockPos,
         portalName: String
     ): Boolean {
-        val originX = entrancePos.x + 0.5
-        val originY = entrancePos.y + 1.0
-        val originZ = entrancePos.z + 0.5
-        val destinationX = realmCenter.x + 0.5
-        val destinationY = realmCenter.y + 2.0
-        val destinationZ = realmCenter.z + 0.5
-
-        val makePortal = executeServerCommand(
-            server,
-            "execute in minecraft:overworld run portal euler make_portal " +
-                "${fmt(originX)} ${fmt(originY)} ${fmt(originZ)} 0 0 4 6 1 {}"
-        )
-        if (!makePortal) return false
-
-        val renamePortal = executeServerCommand(
-            server,
-            "execute in minecraft:overworld as @e[type=immersive_portals:portal,x=${entrancePos.x},y=${entrancePos.y},z=${entrancePos.z},distance=..8,sort=nearest,limit=1] " +
-                "run portal set_portal_custom_name $portalName"
-        )
-        if (!renamePortal) return false
-
-        val setDestination = executeServerCommand(
-            server,
-            "execute in minecraft:overworld as @e[type=immersive_portals:portal,name=$portalName,limit=1] " +
-                "run portal set_portal_destination $RIFT_REALM_DIMENSION_ID ${fmt(destinationX)} ${fmt(destinationY)} ${fmt(destinationZ)}"
-        )
-        if (!setDestination) return false
-
-        return executeServerCommand(
-            server,
-            "execute in minecraft:overworld as @e[type=immersive_portals:portal,name=$portalName,limit=1] " +
-                "run portal complete_bi_way_bi_faced_portal"
-        )
+        return false
     }
 
     private fun removePortalPair(event: ActiveEvent, server: MinecraftServer) {
-        if (event.getData<Boolean>(DATA_RIFT_PORTAL_ACTIVE) != true) return
-        val portalName = event.getData<String>(DATA_RIFT_PORTAL_NAME) ?: return
-
-        executeServerCommand(
-            server,
-            "execute in minecraft:overworld as @e[type=immersive_portals:portal,name=$portalName] run portal eradicate_portal_cluster"
-        )
-        executeServerCommand(
-            server,
-            "execute in $RIFT_REALM_DIMENSION_ID as @e[type=immersive_portals:portal,name=$portalName] run portal eradicate_portal_cluster"
-        )
+        return
     }
 
     private fun isInsideRiftRealm(event: ActiveEvent, player: ServerPlayerEntity): Boolean {
@@ -901,11 +856,6 @@ class TemporalRiftEvent : EventHandler {
             .asSequence()
             .mapNotNull { key -> server.getWorld(key) }
             .firstOrNull { world -> world.registryKey.value.toString().equals(worldId, ignoreCase = true) }
-    }
-
-    private fun isImmersivePortalsLoaded(): Boolean {
-        val loader = FabricLoader.getInstance()
-        return loader.isModLoaded(IMMERSIVE_PORTALS_MOD_ID) || loader.isModLoaded(IMMERSIVE_PORTALS_CONTINUED_MOD_ID)
     }
 
     private fun executeServerCommand(server: MinecraftServer, rawCommand: String): Boolean {

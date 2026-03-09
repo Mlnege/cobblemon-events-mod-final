@@ -32,7 +32,9 @@
   },
   "suggests": {
     "cobblemon": ">=1.7.3",
+    "cobblemon_ultrabeast": "*",
     "cobblemon-ultra-beasts": "*",
+    "ultrabeasts": "*",
     "mega_showdown": "*",
     "legendarymonuments": "*"
   }

@@ -14,32 +14,35 @@ object ExternalModApiRegistry {
     )
 
     private data class ApiSpec(
-        val modId: String,
+        val modIds: List<String>,
         val displayName: String,
         val featureSummary: String
-    )
+    ) {
+        constructor(modId: String, displayName: String, featureSummary: String) : this(
+            modIds = listOf(modId),
+            displayName = displayName,
+            featureSummary = featureSummary
+        )
+    }
 
     private val trackedSpecs = listOf(
-        ApiSpec("cobblemon", "Cobblemon", "포획/배틀 이벤트 기본"),
-        ApiSpec("immersive_portals", "Immersive Portals", "차원 포탈 연동"),
-        ApiSpec("cobblemon-ultra-beasts", "Cobblemon Ultra Beasts", "울트라비스트 연동"),
-        ApiSpec("ultrabeasts", "Ultra Beasts", "울트라 스폰/차원 명령"),
+        ApiSpec("cobblemon", "Cobblemon", "기본 포획/배틀 이벤트"),
+        ApiSpec(listOf("cobblemon_ultrabeast", "cobblemon-ultra-beasts", "ultrabeasts"), "Ultra Beasts", "울트라 스폰/차원 명령"),
         ApiSpec("mega_showdown", "Mega Showdown", "추가 보상 연동"),
         ApiSpec("legendarymonuments", "Legendary Monuments", "전설 아이템 보상"),
-        ApiSpec("generations_core", "Generations Core", "체육관 배지 보상"),
-        ApiSpec("generations-core", "Generations Core", "체육관 배지 보상"),
-        ApiSpec("aps_trophies", "APS Trophies", "리그 트로피 보상"),
-        ApiSpec("apstrophy", "APS Trophies", "리그 트로피 보상"),
-        ApiSpec("cobblemontrainerbattle", "Cobblemon Trainer Battle", "체육관/NPC 배틀")
+        ApiSpec(listOf("generations_core", "generations-core"), "Generations Core", "체육관 배지 보상"),
+        ApiSpec(listOf("aps_trophies", "apstrophy"), "APS Trophies", "리그 트로피 보상"),
+        ApiSpec(listOf("cobblemontrainerbattle", "cobblemon-trainer-battle"), "Cobblemon Trainer Battle", "체육관/NPC 배틀")
     )
 
     fun getStatuses(): List<ApiStatus> {
         return trackedSpecs.map { spec ->
+            val loadedMod = firstLoadedModId(spec.modIds)
             ApiStatus(
-                modId = spec.modId,
+                modId = loadedMod ?: spec.modIds.first(),
                 displayName = spec.displayName,
                 featureSummary = spec.featureSummary,
-                loaded = isLoaded(spec.modId)
+                loaded = loadedMod != null
             )
         }
     }
@@ -53,6 +56,10 @@ object ExternalModApiRegistry {
     fun isAnyLoaded(modIds: Collection<String>): Boolean {
         if (modIds.isEmpty()) return true
         return modIds.any { isLoaded(it) }
+    }
+
+    private fun firstLoadedModId(modIds: Collection<String>): String? {
+        return modIds.firstOrNull { isLoaded(it) }
     }
 
     fun runGymIntegrationCommands(

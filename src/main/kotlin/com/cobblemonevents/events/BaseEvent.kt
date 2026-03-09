@@ -3,6 +3,7 @@ package com.cobblemonevents.events
 import com.cobblemonevents.config.EventDefinition
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.network.ServerPlayerEntity
+import net.minecraft.server.world.ServerWorld
 import net.minecraft.util.math.BlockPos
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -62,4 +63,6 @@ interface EventHandler {
 
     /** 배틀 승리 시 */
     fun onBattleWon(event: ActiveEvent, player: ServerPlayerEntity, defeatedSpecies: String) {}
+
+    fun canBreakBlock(event: ActiveEvent, player: ServerPlayerEntity, world: ServerWorld, pos: BlockPos): Boolean = true
 }

@@ -11,6 +11,8 @@ import com.cobblemonevents.events.types.*
 import com.cobblemonevents.util.BroadcastUtil
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.network.ServerPlayerEntity
+import net.minecraft.server.world.ServerWorld
+import net.minecraft.util.math.BlockPos
 import java.util.concurrent.ConcurrentHashMap
 
 class EventScheduler {
@@ -347,6 +349,21 @@ class EventScheduler {
 
     fun onPlayerJoin(player: ServerPlayerEntity) {
         return
+    }
+
+    fun canPlayerBreakBlock(player: ServerPlayerEntity, world: ServerWorld, pos: BlockPos): Boolean {
+        for ((_, event) in activeEvents) {
+            if (event.state != EventState.ACTIVE) continue
+            val handler = handlers[event.definition.eventType] ?: continue
+            val allowed = try {
+                handler.canBreakBlock(event, player, world, pos)
+            } catch (e: Exception) {
+                CobblemonEventsMod.LOGGER.error("[Scheduler] block-break guard error", e)
+                true
+            }
+            if (!allowed) return false
+        }
+        return true
     }
 
     fun forceStart(eventId: String, server: MinecraftServer): Boolean {

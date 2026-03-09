@@ -15,6 +15,9 @@ import net.fabricmc.api.ModInitializer
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
+import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents
+import net.minecraft.server.network.ServerPlayerEntity
+import net.minecraft.server.world.ServerWorld
 import net.minecraft.server.MinecraftServer
 import org.slf4j.LoggerFactory
 
@@ -87,6 +90,13 @@ object CobblemonEventsMod : ModInitializer {
             EventProgressHud.tick(srv)
             AiGeneratedContentPlanner.tick(srv)
         }
+
+        PlayerBlockBreakEvents.BEFORE.register(PlayerBlockBreakEvents.Before { world, player, pos, _, _ ->
+            if (world !is ServerWorld || player !is ServerPlayerEntity) {
+                return@Before true
+            }
+            scheduler.canPlayerBreakBlock(player, world, pos)
+        })
 
         LOGGER.info("[CobblemonEvents] v$VERSION 초기화 완료.")
         LOGGER.info("[CobblemonEvents] 지원 이벤트: 시공의 균열, 대탐험, 사냥 시즌, 전설 레이드, 럭키 이벤트, 울트라 웜홀, 커스텀 체육관")

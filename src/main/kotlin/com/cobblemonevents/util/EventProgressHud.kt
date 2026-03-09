@@ -151,17 +151,18 @@ object EventProgressHud {
                 }
             }
 
+            if (!(nearestDistance.isFinite() && nearestDistance < Double.MAX_VALUE)) {
+                trackingBars.remove(player.uuid)?.clearPlayers()
+                continue
+            }
+
             val bar = trackingBars.getOrPut(player.uuid) {
                 createTrackingBar(BossBar.Color.PINK)
             }
             bar.addPlayer(player)
             bar.color = BossBar.Color.PINK
             bar.percent = ARROW_BAR_PERCENT
-            bar.name = if (nearestDistance.isFinite() && nearestDistance < Double.MAX_VALUE) {
-                Text.literal("✦ 거리:${nearestDistance.toInt()}m")
-            } else {
-                Text.literal("✦ 남은 포켓스탑 없음")
-            }
+            bar.name = Text.literal("✦ 거리:${nearestDistance.toInt()}m")
             bar.isVisible = true
         }
 

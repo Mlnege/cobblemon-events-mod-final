@@ -87,13 +87,37 @@ class TemporalRiftEvent : EventHandler {
         private const val RIFT_DOME_HEIGHT = 14
         private const val RIFT_CAPTURE_RADIUS_SQ = 60.0 * 60.0
         private const val RIFT_SYNTHETIC_TRIGGER_RADIUS_SQ = 2.8 * 2.8
+        private const val RIFT_LOCK_RADIUS = RIFT_ARENA_RADIUS - 2
+        private const val RIFT_LOCK_RADIUS_SQ = RIFT_LOCK_RADIUS.toDouble() * RIFT_LOCK_RADIUS.toDouble()
         private const val RIFT_SYNTHETIC_COOLDOWN_TICKS = 40L
         private const val RIFT_SHINY_CHANCE = 0.05
         private const val RIFT_DITTO_CHANCE = 0.05
         private const val ADDITIONAL_SPAWN_INTERVAL_TICKS = 20L * 120L
+        private const val RIFT_CLEANUP_RADIUS = RIFT_ARENA_RADIUS + 24
+        private const val RIFT_CLEANUP_HEIGHT = RIFT_DOME_HEIGHT + 14
         private const val TEMPLATE_NAMESPACE = "cobblemon-events"
         private const val TEMPLATE_PREFIX = "rift"
         private val SAFE_PLAYER_NAME = Regex("^[A-Za-z0-9_]{1,16}$")
+        private val BANNED_RIFT_SPAWN_SURFACES = setOf(
+            Blocks.GLASS,
+            Blocks.TINTED_GLASS,
+            Blocks.WHITE_STAINED_GLASS,
+            Blocks.ORANGE_STAINED_GLASS,
+            Blocks.MAGENTA_STAINED_GLASS,
+            Blocks.LIGHT_BLUE_STAINED_GLASS,
+            Blocks.YELLOW_STAINED_GLASS,
+            Blocks.LIME_STAINED_GLASS,
+            Blocks.PINK_STAINED_GLASS,
+            Blocks.GRAY_STAINED_GLASS,
+            Blocks.LIGHT_GRAY_STAINED_GLASS,
+            Blocks.CYAN_STAINED_GLASS,
+            Blocks.PURPLE_STAINED_GLASS,
+            Blocks.BLUE_STAINED_GLASS,
+            Blocks.BROWN_STAINED_GLASS,
+            Blocks.GREEN_STAINED_GLASS,
+            Blocks.RED_STAINED_GLASS,
+            Blocks.BLACK_STAINED_GLASS
+        )
 
         // 요청사항: 전 타입 + 하위 진화체/다양성 강화
         private val DEFAULT_RIFT_TYPES = listOf(
@@ -208,14 +232,11 @@ class TemporalRiftEvent : EventHandler {
             val syntheticExit = BlockPos(realmCenter.x, realmEntry.y, realmCenter.z + RIFT_ARENA_RADIUS - 4)
             event.setData(DATA_RIFT_REALM_ENTRY, realmEntry)
             event.setData(DATA_RIFT_SYNTHETIC_PORTAL_EXIT, syntheticExit)
-            buildEntrancePedestal(server.overworld, pos, selectedTheme)
-            buildSyntheticPortalFrame(server.overworld, pos, selectedTheme)
-            buildSyntheticPortalFrame(riftWorld, syntheticExit, selectedTheme)
 
             event.setData(DATA_RIFT_SYNTHETIC_PORTAL_ACTIVE, true)
             BroadcastUtil.broadcast(
                 server,
-                "${CobblemonEventsMod.config.prefix}§d${selectedRift.displayName} §fRift entrance opened."
+                "${CobblemonEventsMod.config.prefix}§d${selectedRift.displayName} §f차원의 틈이 열렸습니다."
             )
             Pair(riftWorld, realmEntry)
         } else {
@@ -259,6 +280,7 @@ class TemporalRiftEvent : EventHandler {
                 updatePortalReturnSnapshots(event, server)
             }
             handleSyntheticPortalTransitions(event, server)
+            enforceRiftBoundary(event, server)
         }
 
         if (event.ticksRemaining % 60 == 0L) {
@@ -270,11 +292,11 @@ class TemporalRiftEvent : EventHandler {
             }
         }
         if (event.getData<Boolean>(DATA_RIFT_SYNTHETIC_PORTAL_ACTIVE) == true && event.ticksRemaining % 10L == 0L) {
-            spawnSyntheticPortalParticles(server.overworld, entrancePos)
+            spawnSyntheticPortalParticles(server.overworld, entrancePos, scale = 2.6)
             val realmWorld = findWorldById(server, RIFT_REALM_DIMENSION_ID)
             val syntheticExit = event.getData<BlockPos>(DATA_RIFT_SYNTHETIC_PORTAL_EXIT)
             if (realmWorld != null && syntheticExit != null) {
-                spawnSyntheticPortalParticles(realmWorld, syntheticExit)
+                spawnSyntheticPortalParticles(realmWorld, syntheticExit, scale = 1.6)
             }
         }
 
@@ -316,6 +338,7 @@ class TemporalRiftEvent : EventHandler {
 
         val returned = teleportPlayersOutOfRift(event, server)
         removeSyntheticPortalFrames(event, server)
+        val arenaCleared = clearRiftArena(event, server)
         event.setData(DATA_RIFT_SYNTHETIC_PORTAL_ACTIVE, false)
         val despawned = despawnTrackedEntities(event, server)
 
@@ -336,6 +359,7 @@ class TemporalRiftEvent : EventHandler {
                 "Participants: ${event.participants.size}",
                 "Total catches: ${event.participants.values.sum()}",
                 "Returned players: $returned",
+                "Rift arena cleared: $arenaCleared",
                 "Rift despawned: $despawned"
             )
         )
@@ -364,6 +388,21 @@ class TemporalRiftEvent : EventHandler {
         if (Random.nextDouble() < 0.3) {
             RewardManager.giveRewards(player, riftConfig.dropRewards, event.definition)
         }
+    }
+
+    override fun canBreakBlock(event: ActiveEvent, player: ServerPlayerEntity, world: ServerWorld, pos: BlockPos): Boolean {
+        if (!isRealmModeConfigured(event)) return true
+        if (world.registryKey.value.toString() != RIFT_REALM_DIMENSION_ID) return true
+
+        val center = event.getData<BlockPos>(DATA_RIFT_REALM_CENTER) ?: return true
+        val dx = (pos.x + 0.5) - (center.x + 0.5)
+        val dz = (pos.z + 0.5) - (center.z + 0.5)
+        val inRadius = (dx * dx + dz * dz) <= ((RIFT_ARENA_RADIUS + 6).toDouble() * (RIFT_ARENA_RADIUS + 6).toDouble())
+        val inHeight = pos.y in (center.y - 2)..(center.y + RIFT_DOME_HEIGHT + 8)
+        if (!inRadius || !inHeight) return true
+
+        BroadcastUtil.sendPersonal(player, "${CobblemonEventsMod.config.prefix}§c시공의 균열에서는 블럭을 부술 수 없습니다.")
+        return false
     }
 
     private fun buildUnifiedSpeciesPool(riftTypes: List<RiftTypeEntry>): List<String> {
@@ -420,10 +459,21 @@ class TemporalRiftEvent : EventHandler {
     }
 
     private fun randomSpawnPos(world: ServerWorld, center: BlockPos, radius: Int): BlockPos {
-        val x = center.x + Random.nextInt(-radius, radius + 1)
-        val z = center.z + Random.nextInt(-radius, radius + 1)
-        val y = world.getTopY(Heightmap.Type.MOTION_BLOCKING, x, z).coerceAtLeast(center.y)
-        return BlockPos(x, y, z)
+        val safeRadius = (radius - 5).coerceAtLeast(4)
+        repeat(24) {
+            val angle = Random.nextDouble() * Math.PI * 2.0
+            val distance = kotlin.math.sqrt(Random.nextDouble()) * safeRadius
+            val x = center.x + kotlin.math.round(kotlin.math.cos(angle) * distance).toInt()
+            val z = center.z + kotlin.math.round(kotlin.math.sin(angle) * distance).toInt()
+            val y = world.getTopY(Heightmap.Type.MOTION_BLOCKING, x, z).coerceAtLeast(center.y + 1)
+            val spawnPos = BlockPos(x, y, z)
+            val surfaceBlock = world.getBlockState(spawnPos.down()).block
+            if (surfaceBlock in BANNED_RIFT_SPAWN_SURFACES) return@repeat
+            if (!world.getBlockState(spawnPos).isAir) return@repeat
+            if (!world.getBlockState(spawnPos.up()).isAir) return@repeat
+            return spawnPos
+        }
+        return center.up()
     }
 
     private fun createRealmCenter(): BlockPos {
@@ -655,16 +705,86 @@ class TemporalRiftEvent : EventHandler {
         }
     }
 
+    private fun clearRiftEntranceStructure(world: ServerWorld, center: BlockPos) {
+        val removable = mutableSetOf(
+            Blocks.CRYING_OBSIDIAN,
+            Blocks.SCULK,
+            Blocks.SOUL_LANTERN,
+            Blocks.END_ROD,
+            Blocks.LIGHT_BLUE_STAINED_GLASS,
+            Blocks.CYAN_STAINED_GLASS
+        )
+        for (theme in riftThemes.values) {
+            removable.add(theme.floor.block)
+            removable.add(theme.ring.block)
+            removable.add(theme.outer.block)
+            removable.add(theme.dome.block)
+            removable.add(theme.pillar.block)
+            removable.add(theme.core.block)
+        }
+
+        for (x in -8..8) {
+            for (z in -8..8) {
+                for (y in 0..11) {
+                    val target = center.add(x, y, z)
+                    val block = world.getBlockState(target).block
+                    if (block in removable) {
+                        world.setBlockState(target, Blocks.AIR.defaultState, Block.NOTIFY_ALL)
+                    }
+                }
+            }
+        }
+    }
+
     private fun removeSyntheticPortalFrames(event: ActiveEvent, server: MinecraftServer) {
         val entrancePos = event.eventLocation
         if (entrancePos != null) {
             clearSyntheticPortalFrame(server.overworld, entrancePos)
+            clearRiftEntranceStructure(server.overworld, entrancePos)
         }
 
         val realmWorld = findWorldById(server, RIFT_REALM_DIMENSION_ID)
         val syntheticExit = event.getData<BlockPos>(DATA_RIFT_SYNTHETIC_PORTAL_EXIT)
         if (realmWorld != null && syntheticExit != null) {
             clearSyntheticPortalFrame(realmWorld, syntheticExit)
+        }
+    }
+
+    private fun clearRiftArena(event: ActiveEvent, server: MinecraftServer): Boolean {
+        val realmWorld = findWorldById(server, RIFT_REALM_DIMENSION_ID) ?: return false
+        val center = event.getData<BlockPos>(DATA_RIFT_REALM_CENTER) ?: return false
+        for (x in center.x - RIFT_CLEANUP_RADIUS..center.x + RIFT_CLEANUP_RADIUS) {
+            for (z in center.z - RIFT_CLEANUP_RADIUS..center.z + RIFT_CLEANUP_RADIUS) {
+                for (y in center.y - 2..center.y + RIFT_CLEANUP_HEIGHT) {
+                    realmWorld.setBlockState(BlockPos(x, y, z), Blocks.AIR.defaultState, Block.NOTIFY_ALL)
+                }
+            }
+        }
+        return true
+    }
+
+    private fun enforceRiftBoundary(event: ActiveEvent, server: MinecraftServer) {
+        val realmCenter = event.getData<BlockPos>(DATA_RIFT_REALM_CENTER) ?: return
+        val realmEntry = event.getData<BlockPos>(DATA_RIFT_REALM_ENTRY) ?: realmCenter.up()
+        val minY = realmCenter.y - 1
+        val maxY = realmCenter.y + RIFT_DOME_HEIGHT + 2
+
+        for (player in server.playerManager.playerList) {
+            if (player.serverWorld.registryKey.value.toString() != RIFT_REALM_DIMENSION_ID) continue
+            val dx = player.x - (realmCenter.x + 0.5)
+            val dz = player.z - (realmCenter.z + 0.5)
+            val outOfRadius = (dx * dx + dz * dz) > RIFT_LOCK_RADIUS_SQ
+            val outOfHeight = player.y < minY || player.y > maxY
+            if (!outOfRadius && !outOfHeight) continue
+
+            val playerName = player.gameProfile.name
+            if (!SAFE_PLAYER_NAME.matches(playerName)) continue
+            executeServerCommand(
+                server,
+                "execute in $RIFT_REALM_DIMENSION_ID run tp $playerName " +
+                    "${fmt(realmEntry.x + 0.5)} ${fmt(realmEntry.y.toDouble())} ${fmt(realmEntry.z + 0.5)} " +
+                    "${fmt(player.yaw.toDouble())} ${fmt(player.pitch.toDouble())}"
+            )
         }
     }
 
@@ -957,15 +1077,15 @@ class TemporalRiftEvent : EventHandler {
         return removed
     }
 
-    private fun spawnSyntheticPortalParticles(world: ServerWorld, center: BlockPos) {
+    private fun spawnSyntheticPortalParticles(world: ServerWorld, center: BlockPos, scale: Double) {
         try {
             val x = center.x + 0.5
             val y = center.y + 2.2
             val z = center.z + 0.5
-            world.spawnParticles(ParticleTypes.REVERSE_PORTAL, x, y, z, 22, 0.9, 1.2, 0.9, 0.02)
-            world.spawnParticles(ParticleTypes.PORTAL, x, y, z, 18, 0.75, 1.0, 0.75, 0.01)
-            world.spawnParticles(ParticleTypes.SOUL_FIRE_FLAME, x, y, z, 14, 0.65, 0.8, 0.65, 0.0)
-            world.spawnParticles(ParticleTypes.END_ROD, x, y + 1.1, z, 8, 0.45, 0.5, 0.45, 0.0)
+            world.spawnParticles(ParticleTypes.REVERSE_PORTAL, x, y, z, (20 * scale).toInt().coerceAtLeast(12), 0.9 * scale, 1.0 * scale, 0.9 * scale, 0.02)
+            world.spawnParticles(ParticleTypes.PORTAL, x, y, z, (16 * scale).toInt().coerceAtLeast(10), 0.75 * scale, 0.9 * scale, 0.75 * scale, 0.01)
+            world.spawnParticles(ParticleTypes.SOUL_FIRE_FLAME, x, y, z, (10 * scale).toInt().coerceAtLeast(6), 0.55 * scale, 0.7 * scale, 0.55 * scale, 0.0)
+            world.spawnParticles(ParticleTypes.END_ROD, x, y + 1.1, z, (8 * scale).toInt().coerceAtLeast(4), 0.45 * scale, 0.5 * scale, 0.45 * scale, 0.0)
         } catch (_: Exception) {
         }
     }

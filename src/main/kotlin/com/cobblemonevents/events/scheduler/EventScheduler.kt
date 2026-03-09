@@ -293,7 +293,6 @@ class EventScheduler {
         val handler = handlers[event.definition.eventType]
         try {
             handler?.onEnd(event, server)
-            ClientEventFxSync.broadcastEnd(server, event)
         } catch (e: Exception) {
             CobblemonEventsMod.LOGGER.error(
                 "[스케줄러] '${event.definition.id}' 종료 처리 오류",
@@ -306,6 +305,7 @@ class EventScheduler {
                     "(참가자: ${event.participants.size}명, 재예약: $reschedule)"
         )
 
+        ClientEventFxSync.broadcastEnd(server, event)
         if (reschedule) {
             val nextRepeatDelayTicks = event.getData<Long>(DATA_NEXT_REPEAT_DELAY_TICKS)
             if (nextRepeatDelayTicks != null && nextRepeatDelayTicks > 0L) {

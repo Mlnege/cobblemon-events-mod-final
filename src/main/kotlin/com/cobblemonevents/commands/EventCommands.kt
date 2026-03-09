@@ -3,7 +3,10 @@ package com.cobblemonevents.commands
 import com.cobblemonevents.CobblemonEventsMod
 import com.cobblemonevents.events.EventState
 import com.cobblemonevents.integration.ExternalModApiRegistry
+import com.cobblemonevents.integration.LeagueChallengeService
+import com.cobblemonevents.util.BroadcastUtil
 import com.mojang.brigadier.CommandDispatcher
+import com.mojang.brigadier.arguments.IntegerArgumentType
 import com.mojang.brigadier.arguments.StringArgumentType
 import com.mojang.brigadier.context.CommandContext
 import net.minecraft.server.command.CommandManager.argument
@@ -12,6 +15,12 @@ import net.minecraft.server.command.ServerCommandSource
 import net.minecraft.text.Text
 
 object EventCommands {
+    private data class SkipVoteState(
+        val eventId: String,
+        val votes: MutableSet<String> = mutableSetOf()
+    )
+
+    private var skipVoteState: SkipVoteState? = null
 
     fun register(dispatcher: CommandDispatcher<ServerCommandSource>) {
         dispatcher.register(literal("이벤트")
@@ -51,6 +60,26 @@ object EventCommands {
             .then(literal("통계").executes { showStats(it) })
             .then(literal("랭킹").executes { showRanking(it) })
             .then(literal("연동").executes { showIntegrations(it) })
+            .then(literal("리그")
+                .then(literal("상태").executes { showLeagueStatus(it) })
+                .then(literal("입장").then(
+                    argument("티어", IntegerArgumentType.integer(1, 300))
+                        .suggests { _, b ->
+                            LeagueChallengeService.getTierLevels().forEach { b.suggest(it) }
+                            b.buildFuture()
+                        }
+                        .executes { enterLeague(it, "티어") }
+                ))
+                .then(literal("클리어").then(
+                    argument("티어", IntegerArgumentType.integer(1, 300))
+                        .suggests { _, b ->
+                            LeagueChallengeService.getTierLevels().forEach { b.suggest(it) }
+                            b.buildFuture()
+                        }
+                        .requires { it.hasPermissionLevel(2) }
+                        .executes { clearLeague(it, "티어") }
+                ))
+            )
             .then(literal("울트라워프홀")
                 .requires { it.hasPermissionLevel(2) }
                 .then(literal("생성").executes { spawnUltraWormhole(it) })
@@ -103,6 +132,26 @@ object EventCommands {
             .then(literal("stats").executes { showStats(it) })
             .then(literal("ranking").executes { showRanking(it) })
             .then(literal("integrations").executes { showIntegrations(it) })
+            .then(literal("league")
+                .then(literal("status").executes { showLeagueStatus(it) })
+                .then(literal("enter").then(
+                    argument("tier", IntegerArgumentType.integer(1, 300))
+                        .suggests { _, b ->
+                            LeagueChallengeService.getTierLevels().forEach { b.suggest(it) }
+                            b.buildFuture()
+                        }
+                        .executes { enterLeague(it, "tier") }
+                ))
+                .then(literal("clear").then(
+                    argument("tier", IntegerArgumentType.integer(1, 300))
+                        .suggests { _, b ->
+                            LeagueChallengeService.getTierLevels().forEach { b.suggest(it) }
+                            b.buildFuture()
+                        }
+                        .requires { it.hasPermissionLevel(2) }
+                        .executes { clearLeague(it, "tier") }
+                ))
+            )
             .then(literal("ultrawormhole")
                 .requires { it.hasPermissionLevel(2) }
                 .then(literal("spawn").executes { spawnUltraWormhole(it) })
@@ -153,12 +202,40 @@ object EventCommands {
             ))
             .then(literal("reload").requires { it.hasPermissionLevel(2) }.executes { reloadConfig(it) })
             .then(literal("integrations").executes { showIntegrations(it) })
+            .then(literal("league")
+                .then(literal("status").executes { showLeagueStatus(it) })
+                .then(literal("enter").then(
+                    argument("tier", IntegerArgumentType.integer(1, 300))
+                        .suggests { _, b ->
+                            LeagueChallengeService.getTierLevels().forEach { b.suggest(it) }
+                            b.buildFuture()
+                        }
+                        .executes { enterLeague(it, "tier") }
+                ))
+                .then(literal("clear").then(
+                    argument("tier", IntegerArgumentType.integer(1, 300))
+                        .suggests { _, b ->
+                            LeagueChallengeService.getTierLevels().forEach { b.suggest(it) }
+                            b.buildFuture()
+                        }
+                        .requires { it.hasPermissionLevel(2) }
+                        .executes { clearLeague(it, "tier") }
+                ))
+            )
             .then(literal("uw")
                 .requires { it.hasPermissionLevel(2) }
                 .then(literal("spawn").executes { spawnUltraWormhole(it) })
                 .then(literal("close").executes { closeUltraWormhole(it) })
             )
             .executes { showHelp(it) }
+        )
+
+        dispatcher.register(literal("투표")
+            .then(literal("스킵").executes { voteSkipCurrent(it) })
+        )
+
+        dispatcher.register(literal("vote")
+            .then(literal("skip").executes { voteSkipCurrent(it) })
         )
 
         dispatcher.register(literal("\uC774\uBCA4\uD2B8")
@@ -346,11 +423,86 @@ object EventCommands {
             send(source, " §7배틀 승리: §f${stats.totalBattlesWon}회")
             send(source, " §7이벤트 완료: §f${stats.eventsCompleted}회")
             send(source, " §7전설 처치: §f${stats.legendsDefeated}회")
+            send(source, " §7체육관 레벨: §f${stats.gymProgressLevel}/300")
+            send(source, " §7리그 최고 티어: §f${stats.highestLeagueTier}")
         } else {
             send(source, " §7아직 기록이 없습니다.")
         }
         send(source, "")
         return 1
+    }
+
+    private fun showLeagueStatus(ctx: CommandContext<ServerCommandSource>): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        val player = source.player
+
+        if (player == null) {
+            source.sendError(Text.literal("${prefix}플레이어만 사용할 수 있습니다."))
+            return 0
+        }
+
+        val gymLevel = LeagueChallengeService.getPlayerGymLevel(player)
+        val tierLevels = LeagueChallengeService.getTierLevels()
+        val stats = CobblemonEventsMod.rankingManager.getPlayerStats(player.uuid)
+        val highestTier = stats?.highestLeagueTier ?: 0
+        val unlockedTiers = tierLevels.filter { it <= gymLevel }
+        val nextTier = tierLevels.firstOrNull { it > gymLevel }
+        val badgeCount = CobblemonEventsMod.rankingManager.getGymBadgeCount(player.uuid)
+        val nextTierBadgeNeed = nextTier?.let { LeagueChallengeService.getRequiredBadgeCountForTier(it) }
+
+        send(source, "")
+        send(source, "${prefix}§e§l===== 리그 상태 =====")
+        send(source, " §7현재 체육관 레벨: §f${gymLevel}/300")
+        send(source, " §7보유 배지: §f${badgeCount}종")
+        send(source, " §7최고 클리어 티어: §f$highestTier")
+        send(source, " §7입장 가능 티어: §f${if (unlockedTiers.isEmpty()) "없음" else unlockedTiers.joinToString(", ")}")
+        send(source, " §7다음 목표 티어: §f${nextTier?.toString() ?: "최종 티어 달성"}")
+        if (nextTier != null && nextTierBadgeNeed != null) {
+            send(source, " §7다음 티어 필요 배지: §f${nextTierBadgeNeed}종")
+        }
+        send(source, "")
+        return 1
+    }
+
+    private fun enterLeague(ctx: CommandContext<ServerCommandSource>, argName: String): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        val player = source.player
+        if (player == null) {
+            source.sendError(Text.literal("${prefix}플레이어만 사용할 수 있습니다."))
+            return 0
+        }
+
+        val tierLevel = IntegerArgumentType.getInteger(ctx, argName)
+        val result = LeagueChallengeService.enterLeague(player, tierLevel)
+        return if (result.success) {
+            source.sendFeedback({ Text.literal("${prefix}${result.message}") }, false)
+            1
+        } else {
+            source.sendError(Text.literal("${prefix}${result.message}"))
+            0
+        }
+    }
+
+    private fun clearLeague(ctx: CommandContext<ServerCommandSource>, argName: String): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        val player = source.player
+        if (player == null) {
+            source.sendError(Text.literal("${prefix}플레이어만 사용할 수 있습니다."))
+            return 0
+        }
+
+        val tierLevel = IntegerArgumentType.getInteger(ctx, argName)
+        val result = LeagueChallengeService.clearLeague(player, tierLevel)
+        return if (result.success) {
+            source.sendFeedback({ Text.literal("${prefix}${result.message}") }, true)
+            1
+        } else {
+            source.sendError(Text.literal("${prefix}${result.message}"))
+            0
+        }
     }
 
     private fun showRanking(ctx: CommandContext<ServerCommandSource>): Int {
@@ -434,6 +586,76 @@ object EventCommands {
             source.sendError(Text.literal("${prefix}§c울트라 워프홀을 찾을 수 없습니다."))
         }
         return if (success) 1 else 0
+    }
+
+    private fun voteSkipCurrent(ctx: CommandContext<ServerCommandSource>): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        val player = source.player
+        if (player == null) {
+            source.sendError(Text.literal("${prefix}플레이어만 사용할 수 있습니다."))
+            return 0
+        }
+
+        val server = source.server
+        val activeEvents = CobblemonEventsMod.scheduler.getActiveEvents()
+        if (activeEvents.isEmpty()) {
+            source.sendError(Text.literal("${prefix}현재 진행 중인 이벤트가 없습니다."))
+            skipVoteState = null
+            return 0
+        }
+
+        val targetEvent = activeEvents.minByOrNull { it.ticksRemaining } ?: activeEvents.first()
+        val onlinePlayerIds = server.playerManager.playerList.map { it.uuid.toString() }.toSet()
+        if (onlinePlayerIds.isEmpty()) {
+            source.sendError(Text.literal("${prefix}온라인 플레이어가 없습니다."))
+            skipVoteState = null
+            return 0
+        }
+
+        val state = when (val existing = skipVoteState) {
+            null -> SkipVoteState(targetEvent.definition.id).also { skipVoteState = it }
+            else -> {
+                if (existing.eventId != targetEvent.definition.id) {
+                    SkipVoteState(targetEvent.definition.id).also { skipVoteState = it }
+                } else {
+                    existing
+                }
+            }
+        }
+
+        state.votes.retainAll(onlinePlayerIds)
+        val voterId = player.uuid.toString()
+        if (!state.votes.add(voterId)) {
+            source.sendError(Text.literal("${prefix}이미 투표했습니다. (${state.votes.size}/${onlinePlayerIds.size})"))
+            return 0
+        }
+
+        BroadcastUtil.broadcast(
+            server,
+            "${prefix}짠e[투표 스킵] 짠f${player.name.string} 짠7찬성 (${state.votes.size}/${onlinePlayerIds.size}) - 대상: ${targetEvent.definition.displayName}"
+        )
+
+        val allAgreed = onlinePlayerIds.all { it in state.votes }
+        if (!allAgreed) {
+            return 1
+        }
+
+        val skipped = CobblemonEventsMod.scheduler.skipCurrentKeepNext(targetEvent.definition.id, server)
+        skipVoteState = null
+        return if (skipped) {
+            BroadcastUtil.broadcast(
+                server,
+                "${prefix}짠a[투표 스킵] 전원 동의로 '${targetEvent.definition.displayName}' 이벤트를 1회 스킵했습니다."
+            )
+            1
+        } else {
+            BroadcastUtil.broadcast(
+                server,
+                "${prefix}짠c[투표 스킵] 스킵 실행 실패. 잠시 후 다시 시도해 주세요."
+            )
+            0
+        }
     }
 
     private fun showHelp(ctx: CommandContext<ServerCommandSource>): Int {

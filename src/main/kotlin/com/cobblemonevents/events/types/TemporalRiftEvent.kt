@@ -5,6 +5,7 @@ import com.cobblemonevents.CobblemonEventsMod
 import com.cobblemonevents.config.RiftTypeEntry
 import com.cobblemonevents.events.ActiveEvent
 import com.cobblemonevents.events.EventHandler
+import com.cobblemonevents.integration.DatapackStructureService
 import com.cobblemonevents.rewards.RewardManager
 import com.cobblemonevents.util.BroadcastUtil
 import com.cobblemonevents.util.SpawnHelper
@@ -186,7 +187,13 @@ class TemporalRiftEvent : EventHandler {
         val (spawnWorld, spawnCenter) = if (portalEnabled && riftWorld != null) {
             val realmCenter = createRealmCenter()
             event.setData(DATA_RIFT_REALM_CENTER, realmCenter)
-            val imported = tryImportArenaTemplate(server, realmCenter, selectedTheme.id)
+            val datapackPlaced = DatapackStructureService.placeTypeDome(
+                server = server,
+                dimensionId = RIFT_REALM_DIMENSION_ID,
+                center = realmCenter,
+                typeId = selectedRift.id
+            )
+            val imported = if (!datapackPlaced) tryImportArenaTemplate(server, realmCenter, selectedTheme.id) else true
             if (!imported) {
                 buildRiftArena(riftWorld, realmCenter, selectedTheme)
             }

@@ -246,11 +246,38 @@ data class GymIntegrationCommand(
     val command: String = "say [체육관 연동] {type_name} 리더 소환 커맨드를 설정하세요."
 )
 
+data class GymTrainerProfile(
+    val generation: Int = 1,
+    val role: String = "LEADER", // LEADER, ELITE, CHAMPION, VILLAIN
+    val name: String = "Brock",
+    val title: String = "관장",
+    val levelMin: Int = 1,
+    val levelMax: Int = 40,
+    val typeHints: List<String> = emptyList()
+)
+
 data class GymTypeEntry(
     val id: String = "electric",
     val displayName: String = "§e⚡ 전기 체육관",
     val targetWins: Int = 3,
     val rewardMultiplier: Double = 1.0
+)
+
+data class LeagueTierEntry(
+    val tierLevel: Int = 100,
+    val displayName: String = "§e리그 1부",
+    val trophyItemId: String = "aps_trophies:bronze_trophy",
+    val trophyCount: Int = 1,
+    val rewards: RewardPool = RewardPool(
+        items = listOf(
+            ItemRewardEntry("cobblemon:ultra_ball", 16),
+            ItemRewardEntry("cobblemon:rare_candy", 6)
+        ),
+        rewardMode = "RANDOM_MULTI",
+        randomCount = 2
+    ),
+    val entryCommands: List<GymIntegrationCommand> = emptyList(),
+    val completionCommands: List<GymIntegrationCommand> = emptyList()
 )
 
 data class GymConfig(
@@ -267,6 +294,9 @@ data class GymConfig(
     val gymSearchRadius: Int = 450,
     val leaderLevelMin: Int = 40,
     val leaderLevelMax: Int = 80,
+    val levelCap: Int = 300,
+    val levelGainOnClear: Int = 5,
+    val legendaryRewardStartLevel: Int = 150,
     val completionRewards: RewardPool = RewardPool(
         items = listOf(
             ItemRewardEntry("cobblemon:ultra_ball", 8),
@@ -282,10 +312,179 @@ data class GymConfig(
         ),
         rewardMode = "ALL"
     ),
+    val legendaryMonumentRewards: RewardPool = RewardPool(
+        items = listOf(
+            ItemRewardEntry("legendarymonuments:red_chain", 1),
+            ItemRewardEntry("legendarymonuments:star_core", 1),
+            ItemRewardEntry("legendarymonuments:azure_flute", 1)
+        ),
+        rewardMode = "RANDOM_ONE"
+    ),
+    val trainerCatalog: List<GymTrainerProfile> = defaultGymTrainerCatalog(),
+    val leagueTiers: List<LeagueTierEntry> = defaultLeagueTiers(),
     val integrationCommands: List<GymIntegrationCommand> = listOf(
         GymIntegrationCommand()
     )
 )
+
+private fun defaultLeagueTiers(): List<LeagueTierEntry> {
+    return listOf(
+        LeagueTierEntry(
+            tierLevel = 100,
+            displayName = "§e리그 1부",
+            trophyItemId = "aps_trophies:bronze_trophy",
+            trophyCount = 1,
+            rewards = RewardPool(
+                items = listOf(
+                    ItemRewardEntry("cobblemon:ultra_ball", 20),
+                    ItemRewardEntry("cobblemon:rare_candy", 8),
+                    ItemRewardEntry("legendarymonuments:red_chain", 1)
+                ),
+                rewardMode = "RANDOM_MULTI",
+                randomCount = 2
+            )
+        ),
+        LeagueTierEntry(
+            tierLevel = 200,
+            displayName = "§7리그 2부",
+            trophyItemId = "aps_trophies:silver_trophy",
+            trophyCount = 1,
+            rewards = RewardPool(
+                items = listOf(
+                    ItemRewardEntry("cobblemon:ultra_ball", 32),
+                    ItemRewardEntry("cobblemon:master_ball", 1),
+                    ItemRewardEntry("legendarymonuments:star_core", 1)
+                ),
+                rewardMode = "RANDOM_MULTI",
+                randomCount = 2
+            )
+        ),
+        LeagueTierEntry(
+            tierLevel = 300,
+            displayName = "§6리그 챔피언",
+            trophyItemId = "aps_trophies:gold_trophy",
+            trophyCount = 1,
+            rewards = RewardPool(
+                items = listOf(
+                    ItemRewardEntry("cobblemon:master_ball", 1),
+                    ItemRewardEntry("cobblemon:rare_candy", 20),
+                    ItemRewardEntry("legendarymonuments:azure_flute", 1)
+                ),
+                rewardMode = "RANDOM_MULTI",
+                randomCount = 3
+            )
+        )
+    )
+}
+
+private fun defaultGymTrainerCatalog(): List<GymTrainerProfile> {
+    val trainers = mutableListOf<GymTrainerProfile>()
+
+    fun addGroup(
+        generation: Int,
+        role: String,
+        title: String,
+        names: List<String>
+    ) {
+        names.forEachIndexed { index, name ->
+            val (minLevel, maxLevel) = computeTrainerLevelRange(generation, role, index, names.size)
+            trainers += GymTrainerProfile(
+                generation = generation,
+                role = role,
+                name = name,
+                title = title,
+                levelMin = minLevel,
+                levelMax = maxLevel
+            )
+        }
+    }
+
+    // Gen 1
+    addGroup(1, "LEADER", "관장", listOf("Brock", "Misty", "LtSurge", "Erika", "Koga", "Sabrina", "Blaine", "Giovanni"))
+    addGroup(1, "ELITE", "엘리트", listOf("Lorelei", "Bruno", "Agatha", "Lance"))
+    addGroup(1, "CHAMPION", "챔피언", listOf("Blue"))
+    addGroup(1, "VILLAIN", "빌런", listOf("Giovanni", "Archer", "Ariana"))
+
+    // Gen 2
+    addGroup(2, "LEADER", "관장", listOf("Falkner", "Bugsy", "Whitney", "Morty", "Chuck", "Jasmine", "Pryce", "Clair"))
+    addGroup(2, "ELITE", "엘리트", listOf("Will", "Koga", "Bruno", "Karen"))
+    addGroup(2, "CHAMPION", "챔피언", listOf("Lance"))
+    addGroup(2, "VILLAIN", "빌런", listOf("Archer", "Petrel", "Proton"))
+
+    // Gen 3
+    addGroup(3, "LEADER", "관장", listOf("Roxanne", "Brawly", "Wattson", "Flannery", "Norman", "Winona", "Tate", "Liza", "Juan"))
+    addGroup(3, "ELITE", "엘리트", listOf("Sidney", "Phoebe", "Glacia", "Drake"))
+    addGroup(3, "CHAMPION", "챔피언", listOf("Steven", "Wallace"))
+    addGroup(3, "VILLAIN", "빌런", listOf("Maxie", "Archie", "Courtney", "Matt"))
+
+    // Gen 4
+    addGroup(4, "LEADER", "관장", listOf("Roark", "Gardenia", "Maylene", "CrasherWake", "Fantina", "Byron", "Candice", "Volkner"))
+    addGroup(4, "ELITE", "엘리트", listOf("Aaron", "Bertha", "Flint", "Lucian"))
+    addGroup(4, "CHAMPION", "챔피언", listOf("Cynthia"))
+    addGroup(4, "VILLAIN", "빌런", listOf("Cyrus", "Mars", "Jupiter", "Saturn"))
+
+    // Gen 5
+    addGroup(5, "LEADER", "관장", listOf("Cilan", "Chili", "Cress", "Lenora", "Burgh", "Elesa", "Clay", "Skyla", "Brycen", "Drayden"))
+    addGroup(5, "ELITE", "엘리트", listOf("Shauntal", "Grimsley", "Caitlin", "Marshal"))
+    addGroup(5, "CHAMPION", "챔피언", listOf("Alder", "Iris"))
+    addGroup(5, "VILLAIN", "빌런", listOf("Ghetsis", "N", "Colress"))
+
+    // Gen 6
+    addGroup(6, "LEADER", "관장", listOf("Viola", "Grant", "Korrina", "Ramos", "Clemont", "Valerie", "Olympia", "Wulfric"))
+    addGroup(6, "ELITE", "엘리트", listOf("Malva", "Siebold", "Wikstrom", "Drasna"))
+    addGroup(6, "CHAMPION", "챔피언", listOf("Diantha"))
+    addGroup(6, "VILLAIN", "빌런", listOf("Lysandre", "Xerosic"))
+
+    // Gen 7
+    addGroup(7, "LEADER", "관장", listOf("Ilima", "Lana", "Kiawe", "Mallow", "Sophocles", "Acerola", "Mina", "Hala", "Olivia", "Nanu", "Hapu"))
+    addGroup(7, "ELITE", "엘리트", listOf("Hala", "Olivia", "Nanu", "Hapu"))
+    addGroup(7, "CHAMPION", "챔피언", listOf("Kukui", "Hau"))
+    addGroup(7, "VILLAIN", "빌런", listOf("Lusamine", "Guzma", "Faba"))
+
+    // Gen 8
+    addGroup(8, "LEADER", "관장", listOf("Milo", "Nessa", "Kabu", "Bea", "Allister", "Opal", "Gordie", "Melony", "Piers", "Raihan"))
+    addGroup(8, "ELITE", "엘리트", listOf("Bede", "Marnie", "Hop", "Raihan"))
+    addGroup(8, "CHAMPION", "챔피언", listOf("Leon"))
+    addGroup(8, "VILLAIN", "빌런", listOf("Rose", "Oleana"))
+
+    // Gen 9
+    addGroup(9, "LEADER", "관장", listOf("Katy", "Brassius", "Iono", "Kofu", "Larry", "Ryme", "Tulip", "Grusha"))
+    addGroup(9, "ELITE", "엘리트", listOf("Rika", "Poppy", "Larry", "Hassel"))
+    addGroup(9, "CHAMPION", "챔피언", listOf("Geeta", "Nemona"))
+    addGroup(9, "VILLAIN", "빌런", listOf("Giacomo", "Mela", "Atticus", "Ortega", "Eri"))
+
+    return trainers
+}
+
+private fun computeTrainerLevelRange(
+    generation: Int,
+    role: String,
+    order: Int,
+    total: Int
+): Pair<Int, Int> {
+    val genBase = ((generation - 1) * 30 + 1).coerceIn(1, 300)
+    val normalizedRole = role.uppercase()
+    val roleOffset = when (normalizedRole) {
+        "LEADER" -> 0
+        "ELITE" -> 18
+        "CHAMPION" -> 35
+        "VILLAIN" -> 24
+        else -> 0
+    }
+    val roleSpan = when (normalizedRole) {
+        "LEADER" -> 70
+        "ELITE" -> 95
+        "CHAMPION" -> 120
+        "VILLAIN" -> 100
+        else -> 70
+    }
+
+    val safeTotal = total.coerceAtLeast(1)
+    val progress = if (safeTotal == 1) 0.0 else order.toDouble() / (safeTotal - 1).toDouble()
+    val minLevel = (genBase + roleOffset + (progress * 25.0).toInt()).coerceIn(1, 300)
+    val maxLevel = (minLevel + roleSpan).coerceIn(minLevel, 300)
+    return Pair(minLevel, maxLevel)
+}
 
 // ============================================================
 // 이벤트 정의

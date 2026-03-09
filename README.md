@@ -1,59 +1,58 @@
-# Cobblemon Events Mod (Fabric 1.21.1)
+﻿# Cobblemon Events Mod (Fabric 1.21.1)
 
-전설 레이드, 시공의 균열, 울트라 워프홀, 대탐험 등 이벤트를 서버에서 주기적으로 운영하는 모드입니다.
+Cobblemon 서버용 월드 이벤트 모드입니다.
 
-## 요구 사항
-- Java 21
-- Fabric Loader 0.16.0
-- Minecraft 1.21.1
-- Cobblemon Fabric `1.7.3+1.21.1` JAR
-- Cobblemon Raid den
-- Cobblemon legendary monument
-- cobblemon megashowdown
+## 주요 변경점 (Temporal Rift Remake + League 확장)
+- 차원의 틈: 타입별 돔 구조물을 우선 `CobbleDomes` 데이터팩 함수로 생성
+- 체육관 챌린지: 타입별 돔 체육관 생성 + Generations Core 배지 지급
+- 포켓몬 리그: 100/200/300 티어 입장, APS 트로피 보상
+- 리그 입장 심사 NPC: 티어별 요구 배지 수 검사 후 입장 허용
+- 전당 등록 방: 리그 클리어 시 전당 방 생성 + 플레이어 전당 칭호 적용
+- 150레벨 이상: Legendary Monuments 보상 구간 유지
 
-## 로컬 Cobblemon JAR 배치
-이 저장소는 Cobblemon JAR를 포함하지 않습니다.
-아래 경로에 직접 넣어주세요.
+## 필수/권장 모드
+- 필수
+  - Java 21
+  - Fabric Loader 0.16+
+  - Minecraft 1.21.1
+  - Cobblemon Fabric `1.7.3+1.21.1`
+- 보상/연동 권장
+  - Legendary Monuments
+  - APS Trophies (`aps_trophies`)
+  - Generations Core (`generations_core`)
+  - Immersive Portals (차원의 틈 포탈 연동)
 
-```text
-libs/Cobblemon-fabric-1.7.3+1.21.1.jar
-```
+## CobbleDomes 데이터팩 사용
+이 레포에는 아래 데이터팩이 포함되어 있습니다.
+- `datapacks/CobbleDomes_18Type_Datapack_1_21x.zip`
+
+설치 방법:
+1. 서버 월드 폴더의 `datapacks/`에 위 zip 파일을 복사
+2. 서버에서 `/reload`
+3. 이후 이벤트가 시작되면 모드가 자동으로 `cobbledomes:build/types/<type>` 또는 `cobbledomes:build/hub` 함수를 사용
+
+참고:
+- 데이터팩이 없으면 모드는 기존 코드 기반 구조물 빌더로 자동 폴백합니다.
+
+## 리그/배지 규칙
+- 체육관 클리어 시 타입별 `generations_core:*_badge` 지급(모드 설치 시 아이템 지급, 미설치 시 배지 기록은 저장)
+- 리그 티어 요구 배지 수
+  - 티어 100: 6종
+  - 티어 200: 12종
+  - 티어 300: 18종
+- 리그 입장 시 심사 NPC가 생성되며, 배지 조건 미달이면 입장 거부
+- 리그 클리어 시 전당 등록 방 생성 후 전당 칭호(prefix) 적용
 
 ## 빌드
 Windows:
-
 ```powershell
-.\gradlew.bat build --no-daemon
+.\gradlew.bat build -x test
 ```
 
 Linux/macOS:
-
 ```bash
-./gradlew build --no-daemon
+./gradlew build -x test
 ```
 
-## 빌드 결과물
-```text
-build/libs/cobblemon-events-2.2.0.jar
-```
-
-## IntelliJ Community 원클릭 빌드
-1. IntelliJ에서 프로젝트를 `Open` (Gradle 프로젝트로 열기)
-2. 우측 Gradle 패널에서 `Reload All Gradle Projects` 1회 실행
-3. 상단 Run Configuration에서 `Gradle Build` 선택
-4. 실행(재생) 버튼 한 번으로 전체 `build` 수행
-
-참고:
-- Gradle은 Wrapper(`gradlew`) + Java 21(`#JAVA_HOME`) 기준으로 고정되어 있습니다.
-- Cobblemon JAR가 `libs/`에 없으면 `verifyCobblemonJar`가 바로 경고를 내고 빌드를 중단합니다.
-
-## 주요 기능
-- 이벤트 스케줄 기반 자동 시작/종료
-- 전설 레이드: 보스 소환 검증, 보스 5배 스케일, 참가자 자동 인식 보정
-- 울트라 워프홀: 웜홀 생성/유지/정리 명령 연동
-- 포켓스탑/보상 JSON 설정 기반 조정
-- `/이벤트 ...`, `/event ...`, `/ce ...` 명령 지원
-
-## 참고
-- `cobblemon-explorer.json` 등 설정 파일 수정 후 서버 재시작 또는 리로드로 반영하세요.
-- Cobblemon JAR는 라이선스/배포 정책에 따라 별도 관리하세요.
+빌드 산출물:
+- `build/libs/` 아래 remap jar

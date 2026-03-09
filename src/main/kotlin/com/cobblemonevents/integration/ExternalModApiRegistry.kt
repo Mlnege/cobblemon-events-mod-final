@@ -20,14 +20,18 @@ object ExternalModApiRegistry {
     )
 
     private val trackedSpecs = listOf(
-        ApiSpec("cobblemon", "Cobblemon", "포획/배틀 이벤트 훅"),
-        ApiSpec("immersive_portals", "Immersive Portals", "균열 포털/차원 이동"),
-        ApiSpec("cobblemon-ultra-beasts", "Cobblemon Ultra Beasts", "울트라비스트/웜홀 연동"),
-        ApiSpec("ultrabeasts", "Ultra Beasts", "웜홀 명령/차원"),
-        ApiSpec("mega_showdown", "Mega Showdown", "메가 연동 보상"),
-        ApiSpec("legendarymonuments", "Legendary Monuments", "전설 구조물 연동"),
-        ApiSpec("cobblemontrainers", "Cobblemon Trainers", "체육관 리더/NPC 배틀"),
-        ApiSpec("cobblemon_trainers", "Cobblemon Trainers", "체육관 리더/NPC 배틀")
+        ApiSpec("cobblemon", "Cobblemon", "포획/배틀 이벤트 기본"),
+        ApiSpec("immersive_portals", "Immersive Portals", "차원 포탈 연동"),
+        ApiSpec("cobblemon-ultra-beasts", "Cobblemon Ultra Beasts", "울트라비스트 연동"),
+        ApiSpec("ultrabeasts", "Ultra Beasts", "울트라 스폰/차원 명령"),
+        ApiSpec("mega_showdown", "Mega Showdown", "추가 보상 연동"),
+        ApiSpec("legendarymonuments", "Legendary Monuments", "전설 아이템 보상"),
+        ApiSpec("generations_core", "Generations Core", "체육관 배지 보상"),
+        ApiSpec("generations-core", "Generations Core", "체육관 배지 보상"),
+        ApiSpec("aps_trophies", "APS Trophies", "리그 트로피 보상"),
+        ApiSpec("apstrophy", "APS Trophies", "리그 트로피 보상"),
+        ApiSpec("cobblemontrainers", "Cobblemon Trainers", "체육관/NPC 배틀"),
+        ApiSpec("cobblemon_trainers", "Cobblemon Trainers", "체육관/NPC 배틀")
     )
 
     fun getStatuses(): List<ApiStatus> {
@@ -72,12 +76,12 @@ object ExternalModApiRegistry {
     fun logLoadedIntegrations() {
         val loaded = getLoadedStatuses()
         if (loaded.isEmpty()) {
-            CobblemonEventsMod.LOGGER.info("[연동] 감지된 외부 모드 API 없음")
+            CobblemonEventsMod.LOGGER.info("[Integration] no external mod APIs loaded")
             return
         }
 
         val summary = loaded.joinToString { "${it.displayName}(${it.modId})" }
-        CobblemonEventsMod.LOGGER.info("[연동] 활성 API: $summary")
+        CobblemonEventsMod.LOGGER.info("[Integration] active APIs: $summary")
     }
 
     private fun applyVariables(template: String, variables: Map<String, String>): String {
@@ -94,8 +98,9 @@ object ExternalModApiRegistry {
             server.commandManager.executeWithPrefix(server.commandSource, command)
             true
         } catch (e: Exception) {
-            CobblemonEventsMod.LOGGER.warn("[연동] 외부 모드 연동 명령 실패: $command", e)
+            CobblemonEventsMod.LOGGER.warn("[Integration] command failed: $command", e)
             false
         }
     }
 }
+

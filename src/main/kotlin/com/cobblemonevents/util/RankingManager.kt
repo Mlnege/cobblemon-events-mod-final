@@ -15,6 +15,11 @@ data class PlayerStats(
     var totalBattlesWon: Int = 0,
     var eventsCompleted: Int = 0,
     var legendsDefeated: Int = 0,
+    var gymProgressLevel: Int = 1,
+    var gymClears: Int = 0,
+    val gymBadges: MutableSet<String> = mutableSetOf(),
+    var highestLeagueTier: Int = 0,
+    val leagueClears: MutableMap<String, Int> = mutableMapOf(), // tier -> clear count
     val catchHistory: MutableMap<String, Int> = mutableMapOf() // eventId -> count
 )
 
@@ -96,6 +101,54 @@ class RankingManager {
             PlayerStats(playerUUID.toString(), playerName)
         }
         stats.legendsDefeated++
+    }
+
+    fun recordGymChallengeClear(
+        playerUUID: UUID,
+        playerName: String,
+        levelCap: Int = 300,
+        levelGain: Int = 5
+    ): Int {
+        val stats = playerStats.getOrPut(playerUUID) {
+            PlayerStats(playerUUID.toString(), playerName)
+        }
+        stats.gymClears++
+        val gain = levelGain.coerceAtLeast(1)
+        val cappedLevel = levelCap.coerceAtLeast(1)
+        stats.gymProgressLevel = (stats.gymProgressLevel + gain).coerceAtMost(cappedLevel)
+        return stats.gymProgressLevel
+    }
+
+    fun getGymProgressLevel(playerUUID: UUID): Int {
+        return playerStats[playerUUID]?.gymProgressLevel?.coerceIn(1, 300) ?: 1
+    }
+
+    fun recordLeagueTierClear(playerUUID: UUID, playerName: String, tierLevel: Int): Int {
+        val stats = playerStats.getOrPut(playerUUID) {
+            PlayerStats(playerUUID.toString(), playerName)
+        }
+        val key = tierLevel.toString()
+        stats.leagueClears[key] = (stats.leagueClears[key] ?: 0) + 1
+        stats.highestLeagueTier = maxOf(stats.highestLeagueTier, tierLevel)
+        return stats.highestLeagueTier
+    }
+
+    fun recordGymBadge(playerUUID: UUID, playerName: String, badgeItemId: String): Int {
+        val stats = playerStats.getOrPut(playerUUID) {
+            PlayerStats(playerUUID.toString(), playerName)
+        }
+        val normalized = badgeItemId.trim().lowercase()
+        if (normalized.isBlank()) return stats.gymBadges.size
+        stats.gymBadges.add(normalized)
+        return stats.gymBadges.size
+    }
+
+    fun getGymBadgeCount(playerUUID: UUID): Int {
+        return playerStats[playerUUID]?.gymBadges?.size ?: 0
+    }
+
+    fun getGymBadges(playerUUID: UUID): Set<String> {
+        return playerStats[playerUUID]?.gymBadges?.toSet() ?: emptySet()
     }
 
     fun getPlayerStats(playerUUID: UUID): PlayerStats? = playerStats[playerUUID]

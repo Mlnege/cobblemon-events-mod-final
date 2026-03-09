@@ -7,18 +7,12 @@
   "authors": ["CobblemonEvents"],
   "contact": {},
   "license": "MIT",
-  "environment": "*",
+  "environment": "server",
   "entrypoints": {
     "main": [
       {
         "adapter": "kotlin",
         "value": "com.cobblemonevents.CobblemonEventsMod"
-      }
-    ],
-    "client": [
-      {
-        "adapter": "kotlin",
-        "value": "com.cobblemonevents.client.CobblemonEventsClient"
       }
     ]
   },

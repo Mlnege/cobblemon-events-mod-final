@@ -8,7 +8,6 @@ import com.cobblemonevents.events.ActiveEvent
 import com.cobblemonevents.events.EventHandler
 import com.cobblemonevents.events.EventState
 import com.cobblemonevents.events.types.*
-import com.cobblemonevents.network.ClientEventFxSync
 import com.cobblemonevents.util.BroadcastUtil
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.network.ServerPlayerEntity
@@ -256,7 +255,6 @@ class EventScheduler {
         if (handler != null) {
             try {
                 handler.onStart(event, server)
-                ClientEventFxSync.broadcastStart(server, event)
                 CobblemonEventsMod.LOGGER.info("[스케줄러] '${def.id}' 이벤트 시작!")
             } catch (e: Exception) {
                 CobblemonEventsMod.LOGGER.error("[스케줄러] '${def.id}' 이벤트 시작 실패!", e)
@@ -305,7 +303,6 @@ class EventScheduler {
                     "(참가자: ${event.participants.size}명, 재예약: $reschedule)"
         )
 
-        ClientEventFxSync.broadcastEnd(server, event)
         if (reschedule) {
             val nextRepeatDelayTicks = event.getData<Long>(DATA_NEXT_REPEAT_DELAY_TICKS)
             if (nextRepeatDelayTicks != null && nextRepeatDelayTicks > 0L) {
@@ -349,10 +346,7 @@ class EventScheduler {
     }
 
     fun onPlayerJoin(player: ServerPlayerEntity) {
-        for ((_, event) in activeEvents) {
-            if (event.state != EventState.ACTIVE) continue
-            ClientEventFxSync.syncPlayer(player, event)
-        }
+        return
     }
 
     fun forceStart(eventId: String, server: MinecraftServer): Boolean {

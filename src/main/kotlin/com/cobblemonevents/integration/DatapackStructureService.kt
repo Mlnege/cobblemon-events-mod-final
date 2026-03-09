@@ -68,12 +68,16 @@ object DatapackStructureService {
     private fun executeServerCommand(server: MinecraftServer, rawCommand: String): Boolean {
         val command = rawCommand.trim().removePrefix("/")
         return try {
-            server.commandManager.executeWithPrefix(server.commandSource, command)
-            true
+            val result = server.commandManager.dispatcher.execute(command, server.commandSource)
+            if (result <= 0) {
+                CobblemonEventsMod.LOGGER.warn("[DatapackStructure] command result=0: $command")
+                false
+            } else {
+                true
+            }
         } catch (e: Exception) {
             CobblemonEventsMod.LOGGER.warn("[DatapackStructure] command failed: $command", e)
             false
         }
     }
 }
-

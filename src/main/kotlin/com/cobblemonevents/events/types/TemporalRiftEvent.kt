@@ -70,9 +70,8 @@ class TemporalRiftEvent : EventHandler {
     companion object {
         private const val DATA_SELECTED_RIFT = "selectedRift"
         private const val DATA_SPAWNED_ENTITY_UUIDS = "riftSpawnedEntityUuids"
-        private const val DATA_RIFT_PORTAL_ACTIVE = "riftPortalActive"
-        private const val DATA_RIFT_PORTAL_NAME = "riftPortalName"
         private const val DATA_RIFT_REALM_CENTER = "riftRealmCenter"
+        private const val DATA_RIFT_REALM_ENTRY = "riftRealmEntry"
         private const val DATA_RIFT_SPECIES_POOL = "riftSpeciesPool"
         private const val DATA_RIFT_THEME_ID = "riftThemeId"
         private const val DATA_RIFT_LAST_OUTSIDE_POINTS = "riftLastOutsidePoints"
@@ -185,14 +184,11 @@ class TemporalRiftEvent : EventHandler {
         event.setData(DATA_RIFT_LAST_OUTSIDE_POINTS, mutableMapOf<String, RiftReturnSnapshot>())
         event.setData(DATA_RIFT_RETURN_POINTS, mutableMapOf<String, RiftReturnSnapshot>())
 
-        val portalEnabled = false
         val riftWorld = findWorldById(server, RIFT_REALM_DIMENSION_ID)
 
         val (spawnWorld, spawnCenter) = if (riftWorld != null) {
             val realmCenter = createRealmCenter()
-            val syntheticExit = realmCenter.add(0, 1, RIFT_ARENA_RADIUS - 4)
             event.setData(DATA_RIFT_REALM_CENTER, realmCenter)
-            event.setData(DATA_RIFT_SYNTHETIC_PORTAL_EXIT, syntheticExit)
             event.setData(DATA_RIFT_SYNTHETIC_PORTAL_COOLDOWN, mutableMapOf<String, Int>())
             val datapackPlaced = DatapackStructureService.placeTypeDome(
                 server = server,
@@ -200,46 +196,35 @@ class TemporalRiftEvent : EventHandler {
                 center = realmCenter,
                 typeId = selectedRift.id
             )
-            val imported = if (!datapackPlaced) tryImportArenaTemplate(server, realmCenter, selectedTheme.id) else true
-            if (!imported) {
+            val imported = if (!datapackPlaced) tryImportArenaTemplate(server, realmCenter, selectedTheme.id) else false
+            if (!datapackPlaced && !imported) {
                 buildRiftArena(riftWorld, realmCenter, selectedTheme)
             }
+            if (!isRiftArenaReady(riftWorld, realmCenter)) {
+                buildRiftArena(riftWorld, realmCenter, selectedTheme)
+            }
+
+            val realmEntry = resolveRiftEntryPos(riftWorld, realmCenter)
+            val syntheticExit = BlockPos(realmCenter.x, realmEntry.y, realmCenter.z + RIFT_ARENA_RADIUS - 4)
+            event.setData(DATA_RIFT_REALM_ENTRY, realmEntry)
+            event.setData(DATA_RIFT_SYNTHETIC_PORTAL_EXIT, syntheticExit)
             buildEntrancePedestal(server.overworld, pos, selectedTheme)
             buildSyntheticPortalFrame(server.overworld, pos, selectedTheme)
             buildSyntheticPortalFrame(riftWorld, syntheticExit, selectedTheme)
 
-            val portalName = "ce_rift_${System.currentTimeMillis()}"
-            val portalReady = if (portalEnabled) createPortalPair(server, pos, realmCenter, portalName) else false
-            event.setData(DATA_RIFT_PORTAL_ACTIVE, portalReady)
-            event.setData(DATA_RIFT_SYNTHETIC_PORTAL_ACTIVE, !portalReady)
-            if (portalReady) {
-                event.setData(DATA_RIFT_PORTAL_NAME, portalName)
-                BroadcastUtil.broadcast(
-                    server,
-                    "${CobblemonEventsMod.config.prefix}§d${selectedRift.displayName} §f테마 균열 포털이 열렸습니다! §7입구에서 문으로 들어가세요."
-                )
-            } else {
-                BroadcastUtil.broadcast(
-                    server,
-                    "${CobblemonEventsMod.config.prefix}§c포털 생성에 실패하여 오버월드 방식으로 진행합니다."
-                )
-            }
-            Pair(riftWorld, realmCenter)
+            event.setData(DATA_RIFT_SYNTHETIC_PORTAL_ACTIVE, true)
+            BroadcastUtil.broadcast(
+                server,
+                "${CobblemonEventsMod.config.prefix}§d${selectedRift.displayName} §fRift entrance opened."
+            )
+            Pair(riftWorld, realmEntry)
         } else {
-            event.setData(DATA_RIFT_PORTAL_ACTIVE, false)
             event.setData(DATA_RIFT_SYNTHETIC_PORTAL_ACTIVE, false)
             event.setData(DATA_RIFT_SYNTHETIC_PORTAL_COOLDOWN, mutableMapOf<String, Int>())
-            if (!portalEnabled) {
-                BroadcastUtil.broadcast(
-                    server,
-                    "${CobblemonEventsMod.config.prefix}§7차원 포탈 모드 없이 오버월드 방식으로 진행합니다."
-                )
-            } else {
-                BroadcastUtil.broadcast(
-                    server,
-                    "${CobblemonEventsMod.config.prefix}§7균열 차원 월드를 찾지 못해 오버월드 방식으로 진행합니다."
-                )
-            }
+            BroadcastUtil.broadcast(
+                server,
+                "${CobblemonEventsMod.config.prefix}§7Rift realm missing; running in overworld mode."
+            )
             Pair(server.overworld, pos)
         }
 
@@ -263,7 +248,7 @@ class TemporalRiftEvent : EventHandler {
         )
 
         CobblemonEventsMod.LOGGER.info(
-            "[TemporalRift] 균열 생성 - 테마:${selectedTheme.id}, 입구: ${pos.x}, ${pos.y}, ${pos.z}, 스폰: $spawned, 포털사용: ${event.getData<Boolean>(DATA_RIFT_PORTAL_ACTIVE) == true}"
+            "[TemporalRift] rift created - theme:${selectedTheme.id}, entrance:${pos.x},${pos.y},${pos.z}, spawned:$spawned, synthetic:true"
         )
     }
 
@@ -299,11 +284,11 @@ class TemporalRiftEvent : EventHandler {
 
         if (event.ticksRemaining > 0 && event.ticksRemaining % ADDITIONAL_SPAWN_INTERVAL_TICKS == 0L) {
             val usePortalRealm = isRealmModeEnabled(event, server)
-            val realmCenter = event.getData<BlockPos>(DATA_RIFT_REALM_CENTER)
+            val realmEntry = event.getData<BlockPos>(DATA_RIFT_REALM_ENTRY)
             val realmWorld = findWorldById(server, RIFT_REALM_DIMENSION_ID)
 
-            val (spawnWorld, spawnCenter) = if (usePortalRealm && realmCenter != null && realmWorld != null) {
-                Pair(realmWorld, realmCenter)
+            val (spawnWorld, spawnCenter) = if (usePortalRealm && realmEntry != null && realmWorld != null) {
+                Pair(realmWorld, realmEntry)
             } else {
                 Pair(server.overworld, entrancePos)
             }
@@ -330,7 +315,7 @@ class TemporalRiftEvent : EventHandler {
         val riftName = selectedRift?.displayName ?: "시공의 균열"
 
         val returned = teleportPlayersOutOfRift(event, server)
-        removePortalPair(event, server)
+        removeSyntheticPortalFrames(event, server)
         event.setData(DATA_RIFT_SYNTHETIC_PORTAL_ACTIVE, false)
         val despawned = despawnTrackedEntities(event, server)
 
@@ -511,6 +496,22 @@ class TemporalRiftEvent : EventHandler {
         world.setBlockState(core.up(), Blocks.END_ROD.defaultState, Block.NOTIFY_ALL)
     }
 
+    private fun isRiftArenaReady(world: ServerWorld, center: BlockPos): Boolean {
+        val floor = world.getBlockState(center).block
+        val core = world.getBlockState(center.up()).block
+        if (floor != Blocks.AIR && core != Blocks.AIR) {
+            return true
+        }
+        val topY = world.getTopY(Heightmap.Type.MOTION_BLOCKING, center.x, center.z)
+        return topY >= center.y
+    }
+
+    private fun resolveRiftEntryPos(world: ServerWorld, center: BlockPos): BlockPos {
+        val topY = world.getTopY(Heightmap.Type.MOTION_BLOCKING, center.x, center.z)
+        val entryY = maxOf(center.y + 1, topY + 1)
+        return BlockPos(center.x, entryY, center.z)
+    }
+
     private fun buildRiftDome(world: ServerWorld, center: BlockPos, theme: RiftArenaTheme) {
         for (y in 1..RIFT_DOME_HEIGHT) {
             val radiusAtHeight = kotlin.math.sqrt(
@@ -643,13 +644,39 @@ class TemporalRiftEvent : EventHandler {
         world.setBlockState(base.add(3, 2, 0), Blocks.SCULK.defaultState, Block.NOTIFY_ALL)
     }
 
+    private fun clearSyntheticPortalFrame(world: ServerWorld, center: BlockPos) {
+        val base = center.up(1)
+        for (x in -4..4) {
+            for (y in 0..9) {
+                for (z in -2..2) {
+                    world.setBlockState(base.add(x, y, z), Blocks.AIR.defaultState, Block.NOTIFY_ALL)
+                }
+            }
+        }
+    }
+
+    private fun removeSyntheticPortalFrames(event: ActiveEvent, server: MinecraftServer) {
+        val entrancePos = event.eventLocation
+        if (entrancePos != null) {
+            clearSyntheticPortalFrame(server.overworld, entrancePos)
+        }
+
+        val realmWorld = findWorldById(server, RIFT_REALM_DIMENSION_ID)
+        val syntheticExit = event.getData<BlockPos>(DATA_RIFT_SYNTHETIC_PORTAL_EXIT)
+        if (realmWorld != null && syntheticExit != null) {
+            clearSyntheticPortalFrame(realmWorld, syntheticExit)
+        }
+    }
+
     private fun handleSyntheticPortalTransitions(event: ActiveEvent, server: MinecraftServer) {
         if (event.getData<Boolean>(DATA_RIFT_SYNTHETIC_PORTAL_ACTIVE) != true) return
         if (!isRealmModeEnabled(event, server)) return
 
         val entrancePos = event.eventLocation ?: return
         val realmCenter = event.getData<BlockPos>(DATA_RIFT_REALM_CENTER) ?: return
-        val syntheticExit = event.getData<BlockPos>(DATA_RIFT_SYNTHETIC_PORTAL_EXIT) ?: realmCenter
+        val realmEntry = event.getData<BlockPos>(DATA_RIFT_REALM_ENTRY) ?: realmCenter.up()
+        val syntheticExit = event.getData<BlockPos>(DATA_RIFT_SYNTHETIC_PORTAL_EXIT)
+            ?: BlockPos(realmCenter.x, realmEntry.y, realmCenter.z + RIFT_ARENA_RADIUS - 4)
 
         val outsideSnapshots =
             event.getData<MutableMap<String, RiftReturnSnapshot>>(DATA_RIFT_LAST_OUTSIDE_POINTS) ?: mutableMapOf()
@@ -712,7 +739,7 @@ class TemporalRiftEvent : EventHandler {
             val ok = executeServerCommand(
                 server,
                 "execute in $RIFT_REALM_DIMENSION_ID run tp $playerName " +
-                    "${fmt(realmCenter.x + 0.5)} ${fmt(realmCenter.y + 1.0)} ${fmt(realmCenter.z + 0.5)} " +
+                    "${fmt(realmEntry.x + 0.5)} ${fmt(realmEntry.y.toDouble())} ${fmt(realmEntry.z + 0.5)} " +
                     "${fmt(player.yaw.toDouble())} ${fmt(player.pitch.toDouble())}"
             )
             if (ok) {
@@ -814,19 +841,6 @@ class TemporalRiftEvent : EventHandler {
         )
     }
 
-    private fun createPortalPair(
-        server: MinecraftServer,
-        entrancePos: BlockPos,
-        realmCenter: BlockPos,
-        portalName: String
-    ): Boolean {
-        return false
-    }
-
-    private fun removePortalPair(event: ActiveEvent, server: MinecraftServer) {
-        return
-    }
-
     private fun isInsideRiftRealm(event: ActiveEvent, player: ServerPlayerEntity): Boolean {
         if (player.serverWorld.registryKey.value.toString() != RIFT_REALM_DIMENSION_ID) {
             return false
@@ -861,8 +875,8 @@ class TemporalRiftEvent : EventHandler {
     private fun executeServerCommand(server: MinecraftServer, rawCommand: String): Boolean {
         val command = rawCommand.trim().removePrefix("/")
         return try {
-            server.commandManager.executeWithPrefix(server.commandSource, command)
-            true
+            val result = server.commandManager.dispatcher.execute(command, server.commandSource)
+            result > 0
         } catch (e: Exception) {
             CobblemonEventsMod.LOGGER.warn("[TemporalRift] 명령 실행 실패: $command", e)
             false

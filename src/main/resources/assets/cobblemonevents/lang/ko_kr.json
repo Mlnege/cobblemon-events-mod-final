@@ -8,6 +8,7 @@
   "cobblemonevents.event.type.legendary_raid": "전설 레이드",
   "cobblemonevents.event.type.lucky_event": "럭키 이벤트",
   "cobblemonevents.event.type.ultra_wormhole": "울트라 워프홀",
+  "cobblemonevents.event.type.gym_challenge": "커스텀 체육관",
 
   "cobblemonevents.rift.fire": "🔥 불 타입 균열",
   "cobblemonevents.rift.ice": "❄ 얼음 타입 균열",
@@ -76,5 +77,6 @@
   "cobblemonevents.command.ranking": "/이벤트 랭킹 - 사냥 시즌 랭킹",
   "cobblemonevents.command.start": "/이벤트 시작 <ID> - 강제 시작 (OP)",
   "cobblemonevents.command.stop": "/이벤트 종료 <ID> - 강제 종료 (OP)",
-  "cobblemonevents.command.reload": "/이벤트 리로드 - 설정 리로드 (OP)"
+  "cobblemonevents.command.reload": "/이벤트 리로드 - 설정 리로드 (OP)",
+  "cobblemonevents.command.integrations": "/이벤트 연동 - 외부 모드 API 상태"
 }

@@ -518,20 +518,74 @@ class TemporalRiftEvent : EventHandler {
 
     private fun buildEntrancePedestal(world: ServerWorld, center: BlockPos, theme: RiftArenaTheme) {
         val y = center.y
-        for (x in center.x - 3..center.x + 3) {
-            for (z in center.z - 3..center.z + 3) {
-                world.setBlockState(BlockPos(x, y, z), theme.ring, Block.NOTIFY_ALL)
-                world.setBlockState(BlockPos(x, y + 1, z), Blocks.AIR.defaultState, Block.NOTIFY_ALL)
-                world.setBlockState(BlockPos(x, y + 2, z), Blocks.AIR.defaultState, Block.NOTIFY_ALL)
-                world.setBlockState(BlockPos(x, y + 3, z), Blocks.AIR.defaultState, Block.NOTIFY_ALL)
+        val platformRadius = 6
+        for (x in center.x - platformRadius..center.x + platformRadius) {
+            for (z in center.z - platformRadius..center.z + platformRadius) {
+                val dx = x - center.x
+                val dz = z - center.z
+                val distanceSq = dx * dx + dz * dz
+                val floor = when {
+                    distanceSq <= 9 -> theme.floor
+                    distanceSq <= 25 -> theme.outer
+                    distanceSq <= 36 -> theme.ring
+                    else -> null
+                }
+                if (floor != null) {
+                    world.setBlockState(BlockPos(x, y, z), floor, Block.NOTIFY_ALL)
+                }
+
+                for (h in 1..9) {
+                    world.setBlockState(BlockPos(x, y + h, z), Blocks.AIR.defaultState, Block.NOTIFY_ALL)
+                }
             }
         }
+
+        buildEntrancePortalArch(world, center, theme)
+        buildEntranceObelisk(world, center.add(5, 1, 5), theme)
+        buildEntranceObelisk(world, center.add(-5, 1, 5), theme)
+        buildEntranceObelisk(world, center.add(5, 1, -5), theme)
+        buildEntranceObelisk(world, center.add(-5, 1, -5), theme)
+
         world.setBlockState(center.up(), theme.core, Block.NOTIFY_ALL)
         world.setBlockState(center.up(2), Blocks.END_ROD.defaultState, Block.NOTIFY_ALL)
-        world.setBlockState(center.north().up(2), theme.dome, Block.NOTIFY_ALL)
-        world.setBlockState(center.south().up(2), theme.dome, Block.NOTIFY_ALL)
-        world.setBlockState(center.east().up(2), theme.dome, Block.NOTIFY_ALL)
-        world.setBlockState(center.west().up(2), theme.dome, Block.NOTIFY_ALL)
+        world.setBlockState(center.up(3), theme.dome, Block.NOTIFY_ALL)
+        world.setBlockState(center.north(2).up(1), theme.core, Block.NOTIFY_ALL)
+        world.setBlockState(center.south(2).up(1), theme.core, Block.NOTIFY_ALL)
+        world.setBlockState(center.east(2).up(1), theme.core, Block.NOTIFY_ALL)
+        world.setBlockState(center.west(2).up(1), theme.core, Block.NOTIFY_ALL)
+    }
+
+    private fun buildEntrancePortalArch(world: ServerWorld, center: BlockPos, theme: RiftArenaTheme) {
+        val leftBase = center.add(-2, 1, -1)
+        val rightBase = center.add(2, 1, -1)
+
+        for (h in 0..6) {
+            world.setBlockState(leftBase.up(h), theme.pillar, Block.NOTIFY_ALL)
+            world.setBlockState(rightBase.up(h), theme.pillar, Block.NOTIFY_ALL)
+        }
+        for (x in -2..2) {
+            world.setBlockState(center.add(x, 7, -1), theme.ring, Block.NOTIFY_ALL)
+        }
+
+        for (z in -1..1) {
+            world.setBlockState(center.add(-3, 3, z), theme.dome, Block.NOTIFY_ALL)
+            world.setBlockState(center.add(3, 3, z), theme.dome, Block.NOTIFY_ALL)
+        }
+
+        world.setBlockState(center.add(0, 8, -1), theme.core, Block.NOTIFY_ALL)
+        world.setBlockState(center.add(0, 9, -1), Blocks.END_ROD.defaultState, Block.NOTIFY_ALL)
+        world.setBlockState(center.add(0, 6, -1), Blocks.AIR.defaultState, Block.NOTIFY_ALL)
+        world.setBlockState(center.add(0, 5, -1), Blocks.AIR.defaultState, Block.NOTIFY_ALL)
+        world.setBlockState(center.add(0, 4, -1), Blocks.AIR.defaultState, Block.NOTIFY_ALL)
+        world.setBlockState(center.add(0, 3, -1), Blocks.AIR.defaultState, Block.NOTIFY_ALL)
+    }
+
+    private fun buildEntranceObelisk(world: ServerWorld, pos: BlockPos, theme: RiftArenaTheme) {
+        for (h in 0..4) {
+            world.setBlockState(pos.up(h), theme.pillar, Block.NOTIFY_ALL)
+        }
+        world.setBlockState(pos.up(5), theme.core, Block.NOTIFY_ALL)
+        world.setBlockState(pos.up(6), Blocks.END_ROD.defaultState, Block.NOTIFY_ALL)
     }
 
     private fun updatePortalReturnSnapshots(event: ActiveEvent, server: MinecraftServer) {

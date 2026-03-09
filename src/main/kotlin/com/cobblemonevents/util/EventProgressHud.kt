@@ -17,6 +17,7 @@ object EventProgressHud {
     private const val ARROW_BAR_PERCENT = 1.0f
     private const val EXPLORER_STOPS_KEY = "stops"
     private const val EXPLORER_CLAIMED_STOPS_KEY = "claimedStops"
+    private const val GYM_TARGET_KEY = "gym_target"
 
     @Volatile
     private var running = false
@@ -213,6 +214,7 @@ object EventProgressHud {
             "LEGENDARY_RAID" -> "전설 레이드"
             "LUCKY_EVENT" -> "럭키 이벤트"
             "ULTRA_WORMHOLE" -> "울트라 워프홀"
+            "GYM_CHALLENGE" -> "커스텀 체육관"
             "AI_DYNAMIC" -> {
                 val category = event.getData<String>("ai_dynamic_category")
                 val mode = event.getData<String>("ai_dynamic_mode")
@@ -232,12 +234,15 @@ object EventProgressHud {
     private fun resolveTarget(event: ActiveEvent): Int? {
         val aiTarget = event.getData<Int>("ai_dynamic_target")
         if (aiTarget != null && aiTarget > 0) return aiTarget
+        val gymTarget = event.getData<Int>(GYM_TARGET_KEY)
+        if (gymTarget != null && gymTarget > 0) return gymTarget
 
         return when (event.definition.eventType) {
             "EXPLORER" -> event.definition.explorerConfig?.stopCount
             "ULTRA_WORMHOLE" -> event.definition.wormholeConfig?.spawnCount
             "TEMPORAL_RIFT" -> 2
             "LEGENDARY_RAID" -> 1
+            "GYM_CHALLENGE" -> event.definition.gymConfig?.randomTargetMax
             else -> null
         }?.takeIf { it > 0 }
     }

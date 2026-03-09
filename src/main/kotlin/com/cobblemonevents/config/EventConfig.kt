@@ -239,6 +239,54 @@ data class UltraWormholeConfig(
     val requireUltraBeastsMod: Boolean = false   // true면 Ultra Beasts 모드 필수
 )
 
+/** 체육관 커스텀 이벤트 설정 */
+data class GymIntegrationCommand(
+    val id: String = "spawn_gym_leader",
+    val requiredMods: List<String> = listOf("cobblemontrainers", "cobblemon_trainers"),
+    val command: String = "say [체육관 연동] {type_name} 리더 소환 커맨드를 설정하세요."
+)
+
+data class GymTypeEntry(
+    val id: String = "electric",
+    val displayName: String = "§e⚡ 전기 체육관",
+    val targetWins: Int = 3,
+    val rewardMultiplier: Double = 1.0
+)
+
+data class GymConfig(
+    val gymTypes: List<GymTypeEntry> = listOf(
+        GymTypeEntry("electric", "§e⚡ 번개 배지 체육관", 3, 1.0),
+        GymTypeEntry("water", "§9🌊 파도 배지 체육관", 3, 1.0),
+        GymTypeEntry("fire", "§c🔥 화염 배지 체육관", 4, 1.1),
+        GymTypeEntry("grass", "§a🌿 숲의 배지 체육관", 4, 1.1),
+        GymTypeEntry("psychic", "§d🔮 정신 배지 체육관", 5, 1.2),
+        GymTypeEntry("dragon", "§5🐉 용의 배지 체육관", 5, 1.25)
+    ),
+    val randomTargetMin: Int = 3,
+    val randomTargetMax: Int = 6,
+    val gymSearchRadius: Int = 450,
+    val leaderLevelMin: Int = 40,
+    val leaderLevelMax: Int = 80,
+    val completionRewards: RewardPool = RewardPool(
+        items = listOf(
+            ItemRewardEntry("cobblemon:ultra_ball", 8),
+            ItemRewardEntry("cobblemon:rare_candy", 3),
+            ItemRewardEntry("cobblemon:exp_candy_l", 4)
+        ),
+        rewardMode = "RANDOM_MULTI",
+        randomCount = 2
+    ),
+    val participationRewards: RewardPool = RewardPool(
+        items = listOf(
+            ItemRewardEntry("cobblemon:great_ball", 6)
+        ),
+        rewardMode = "ALL"
+    ),
+    val integrationCommands: List<GymIntegrationCommand> = listOf(
+        GymIntegrationCommand()
+    )
+)
+
 // ============================================================
 // 이벤트 정의
 // ============================================================
@@ -262,6 +310,7 @@ data class EventDefinition(
     val raidConfig: LegendaryRaidConfig? = null,
     val luckyConfig: LuckyEventConfig? = null,
     val wormholeConfig: UltraWormholeConfig? = null,
+    val gymConfig: GymConfig? = null,
 
     // 범용 보상 (특정 유형이 자체 보상이 없을 때)
     val rewards: RewardPool = RewardPool()
@@ -382,6 +431,19 @@ data class EventConfig(
                         announceBeforeMinutes = 3,
                         eventType = "ULTRA_WORMHOLE",
                         wormholeConfig = UltraWormholeConfig()
+                    ),
+
+                    // ===== 7. 커스텀 체육관 =====
+                    EventDefinition(
+                        id = "custom_gym",
+                        displayName = "§b🏟 커스텀 체육관 챌린지",
+                        description = "§f타입별 체육관을 돌파하고 배지를 획득하세요!",
+                        intervalMinutes = 720,
+                        durationMinutes = 18,
+                        startDelayMinutes = 450,
+                        announceBeforeMinutes = 3,
+                        eventType = "GYM_CHALLENGE",
+                        gymConfig = GymConfig()
                     )
                 )
             )

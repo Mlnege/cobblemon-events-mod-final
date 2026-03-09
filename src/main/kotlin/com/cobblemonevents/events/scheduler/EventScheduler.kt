@@ -39,6 +39,7 @@ class EventScheduler {
         handlers["LEGENDARY_RAID"] = LegendaryRaidEvent()
         handlers["LUCKY_EVENT"] = LuckyEvent()
         handlers["ULTRA_WORMHOLE"] = UltraWormholeEvent()
+        handlers["GYM_CHALLENGE"] = GymChallengeEvent()
         handlers["AI_DYNAMIC"] = AiDynamicEvent()
     }
 

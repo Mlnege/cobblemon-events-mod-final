@@ -8,6 +8,7 @@
   "cobblemonevents.event.type.legendary_raid": "Legendary Raid",
   "cobblemonevents.event.type.lucky_event": "Lucky Event",
   "cobblemonevents.event.type.ultra_wormhole": "Ultra Wormhole",
+  "cobblemonevents.event.type.gym_challenge": "Custom Gym Challenge",
 
   "cobblemonevents.state.waiting": "Waiting",
   "cobblemonevents.state.announced": "Announced",
@@ -21,5 +22,6 @@
   "cobblemonevents.ranking.title": "Hunting Season Final Results!",
   "cobblemonevents.ranking.1st": "1st Place",
   "cobblemonevents.ranking.2nd": "2nd Place",
-  "cobblemonevents.ranking.3rd": "3rd Place"
+  "cobblemonevents.ranking.3rd": "3rd Place",
+  "cobblemonevents.command.integrations": "/event integrations - external mod API status"
 }

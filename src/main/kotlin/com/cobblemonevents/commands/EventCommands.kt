@@ -2,6 +2,7 @@ package com.cobblemonevents.commands
 
 import com.cobblemonevents.CobblemonEventsMod
 import com.cobblemonevents.events.EventState
+import com.cobblemonevents.integration.ExternalModApiRegistry
 import com.mojang.brigadier.CommandDispatcher
 import com.mojang.brigadier.arguments.StringArgumentType
 import com.mojang.brigadier.context.CommandContext
@@ -49,6 +50,7 @@ object EventCommands {
             )
             .then(literal("통계").executes { showStats(it) })
             .then(literal("랭킹").executes { showRanking(it) })
+            .then(literal("연동").executes { showIntegrations(it) })
             .then(literal("울트라워프홀")
                 .requires { it.hasPermissionLevel(2) }
                 .then(literal("생성").executes { spawnUltraWormhole(it) })
@@ -100,6 +102,7 @@ object EventCommands {
             .then(literal("reload").requires { it.hasPermissionLevel(2) }.executes { reloadConfig(it) })
             .then(literal("stats").executes { showStats(it) })
             .then(literal("ranking").executes { showRanking(it) })
+            .then(literal("integrations").executes { showIntegrations(it) })
             .then(literal("ultrawormhole")
                 .requires { it.hasPermissionLevel(2) }
                 .then(literal("spawn").executes { spawnUltraWormhole(it) })
@@ -149,6 +152,7 @@ object EventCommands {
                     .executes { continueEvent(it, "id") }
             ))
             .then(literal("reload").requires { it.hasPermissionLevel(2) }.executes { reloadConfig(it) })
+            .then(literal("integrations").executes { showIntegrations(it) })
             .then(literal("uw")
                 .requires { it.hasPermissionLevel(2) }
                 .then(literal("spawn").executes { spawnUltraWormhole(it) })
@@ -167,6 +171,7 @@ object EventCommands {
                     .requires { it.hasPermissionLevel(2) }
                     .executes { continueEvent(it, "eventId") }
             ))
+            .then(literal("\uC5F0\uB3D9").executes { showIntegrations(it) })
         )
 
         CobblemonEventsMod.LOGGER.info("[코블몬 이벤트] 커맨드 등록: /이벤트, /event, /ce")
@@ -380,6 +385,23 @@ object EventCommands {
         return 1
     }
 
+    private fun showIntegrations(ctx: CommandContext<ServerCommandSource>): Int {
+        val source = ctx.source
+        val prefix = CobblemonEventsMod.config.prefix
+        val statuses = ExternalModApiRegistry.getStatuses()
+
+        send(source, "")
+        send(source, "${prefix}§b§l═══ 외부 모드 API 연동 상태 ═══")
+        for (status in statuses) {
+            val marker = if (status.loaded) "§a●" else "§8○"
+            val state = if (status.loaded) "§a활성" else "§7비활성"
+            send(source, " $marker §f${status.displayName} §7(${status.modId}) §8- $state")
+            send(source, "   §7기능: §f${status.featureSummary}")
+        }
+        send(source, "")
+        return 1
+    }
+
     private fun spawnUltraWormhole(ctx: CommandContext<ServerCommandSource>): Int {
         val source = ctx.source
         val prefix = CobblemonEventsMod.config.prefix
@@ -419,12 +441,13 @@ object EventCommands {
         val prefix = CobblemonEventsMod.config.prefix
 
         send(source, "")
-        send(source, "${prefix}§f§l═══ 코블몬 이벤트 v2.1 도움말 ═══")
+        send(source, "${prefix}§f§l═══ 코블몬 이벤트 도움말 ═══")
         send(source, "")
         send(source, " §e/이벤트 목록 §7- 모든 이벤트 상태")
         send(source, " §e/이벤트 활성 §7- 진행 중인 이벤트만")
         send(source, " §e/이벤트 통계 §7- 내 이벤트 통계")
         send(source, " §e/이벤트 랭킹 §7- 사냥 시즌 랭킹")
+        send(source, " §e/이벤트 연동 §7- 외부 모드 API 상태")
         send(source, " §c/이벤트 시작 <ID> §7- 즉시 강제 시작 (OP)")
         send(source, " §c/이벤트 종료 <ID> §7- 완전 종료, 다음 주기 없음 (OP)")
         send(source, " §6/이벤트 건너뛰기 <ID> §7- 이번 회차만 취소, 다음 주기 유지 (OP)")
@@ -432,8 +455,8 @@ object EventCommands {
         send(source, " §5/이벤트 울트라워프홀 생성 §7- 울트라 워프홀 즉시 생성 (OP)")
         send(source, " §5/이벤트 울트라워프홀 닫기 §7- 울트라 워프홀 즉시 종료 (OP)")
         send(source, "")
-        send(source, " §7영문: §f/event list|active|stats|ranking|start|stop|skip|reload|ultrawormhole spawn|ultrawormhole close")
-        send(source, " §7단축: §f/ce list|active|start|stop|skip|reload|uw spawn|uw close")
+        send(source, " §7영문: §f/event list|active|stats|ranking|integrations|start|stop|skip|reload|ultrawormhole spawn|ultrawormhole close")
+        send(source, " §7단축: §f/ce list|active|integrations|start|stop|skip|reload|uw spawn|uw close")
         send(source, "")
         send(source, " §f§l이벤트 유형:")
         send(source, "  §d🌀 시공 균열 §7- 타입별 포켓몬 대량 출현")
@@ -442,6 +465,7 @@ object EventCommands {
         send(source, "  §6🌠 전설 레이드 §7- 협동 보스전")
         send(source, "  §e🎰 럭키 이벤트 §7- 랜덤 행운 효과")
         send(source, "  §5🌌 울트라 워프홀 §7- 울트라비스트 출현")
+        send(source, "  §b🏟 커스텀 체육관 §7- 타입별 체육관 챌린지")
         send(source, "")
         return 1
     }
@@ -457,6 +481,7 @@ object EventCommands {
         "LEGENDARY_RAID" -> "§6🌠"
         "LUCKY_EVENT" -> "§e🎰"
         "ULTRA_WORMHOLE" -> "§5🌌"
+        "GYM_CHALLENGE" -> "§b🏟"
         else -> "§7?"
     }
 
@@ -467,6 +492,7 @@ object EventCommands {
         "LEGENDARY_RAID" -> "전설 레이드"
         "LUCKY_EVENT" -> "럭키 이벤트"
         "ULTRA_WORMHOLE" -> "울트라 워프홀"
+        "GYM_CHALLENGE" -> "커스텀 체육관"
         else -> type
     }
 }

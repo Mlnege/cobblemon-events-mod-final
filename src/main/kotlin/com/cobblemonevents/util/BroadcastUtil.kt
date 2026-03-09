@@ -191,6 +191,12 @@ object BroadcastUtil {
                 startSound = SoundEvents.ITEM_LODESTONE_COMPASS_LOCK,
                 endSound = SoundEvents.BLOCK_NOTE_BLOCK_CHIME.value()
             )
+            "체육관" in eventName || "gym" in lower -> Theme(
+                icon = "🏟",
+                title = "커스텀 체육관",
+                startSound = SoundEvents.BLOCK_BEACON_ACTIVATE,
+                endSound = SoundEvents.BLOCK_BEACON_DEACTIVATE
+            )
             else -> Theme(
                 icon = "★",
                 title = "월드 이벤트",

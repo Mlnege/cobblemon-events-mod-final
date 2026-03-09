@@ -8,6 +8,7 @@ import com.cobblemonevents.config.EventConfig
 import com.cobblemonevents.config.RuntimeConfigAutoReloader
 import com.cobblemonevents.events.scheduler.EventScheduler
 import com.cobblemonevents.integration.CobblemonHooks
+import com.cobblemonevents.integration.ExternalModApiRegistry
 import com.cobblemonevents.util.EventProgressHud
 import com.cobblemonevents.util.RankingManager
 import net.fabricmc.api.ModInitializer
@@ -50,6 +51,7 @@ object CobblemonEventsMod : ModInitializer {
         rankingManager = RankingManager()
 
         CobblemonHooks.register()
+        ExternalModApiRegistry.logLoadedIntegrations()
 
         CommandRegistrationCallback.EVENT.register { dispatcher, _, _ ->
             EventCommands.register(dispatcher)
@@ -87,7 +89,7 @@ object CobblemonEventsMod : ModInitializer {
         }
 
         LOGGER.info("[CobblemonEvents] v$VERSION 초기화 완료.")
-        LOGGER.info("[CobblemonEvents] 지원 이벤트: 시공의 균열, 대탐험, 사냥 시즌, 전설 레이드, 럭키 이벤트, 울트라 웜홀")
+        LOGGER.info("[CobblemonEvents] 지원 이벤트: 시공의 균열, 대탐험, 사냥 시즌, 전설 레이드, 럭키 이벤트, 울트라 웜홀, 커스텀 체육관")
     }
 }
 

@@ -34,6 +34,15 @@ class TemporalRiftEvent : EventHandler {
         val core: BlockState
     )
 
+    private data class RiftReturnSnapshot(
+        val dimensionId: String,
+        val x: Double,
+        val y: Double,
+        val z: Double,
+        val yaw: Float,
+        val pitch: Float
+    )
+
     private val riftThemes: Map<String, RiftArenaTheme> by lazy {
         mapOf(
             "normal" to RiftArenaTheme("normal", Blocks.SMOOTH_STONE.defaultState, Blocks.CALCITE.defaultState, Blocks.DIORITE.defaultState, Blocks.WHITE_STAINED_GLASS.defaultState, Blocks.QUARTZ_PILLAR.defaultState, Blocks.GLOWSTONE.defaultState),
@@ -66,6 +75,8 @@ class TemporalRiftEvent : EventHandler {
         private const val DATA_RIFT_REALM_CENTER = "riftRealmCenter"
         private const val DATA_RIFT_SPECIES_POOL = "riftSpeciesPool"
         private const val DATA_RIFT_THEME_ID = "riftThemeId"
+        private const val DATA_RIFT_LAST_OUTSIDE_POINTS = "riftLastOutsidePoints"
+        private const val DATA_RIFT_RETURN_POINTS = "riftReturnPoints"
         private const val MISSION_CLEAR_CATCH_COUNT = 2
         private const val IMMERSIVE_PORTALS_MOD_ID = "immersive_portals"
         private const val RIFT_REALM_DIMENSION_ID = "minecraft:the_end"
@@ -78,6 +89,7 @@ class TemporalRiftEvent : EventHandler {
         private const val ADDITIONAL_SPAWN_INTERVAL_TICKS = 20L * 120L
         private const val TEMPLATE_NAMESPACE = "cobblemon-events"
         private const val TEMPLATE_PREFIX = "rift"
+        private val SAFE_PLAYER_NAME = Regex("^[A-Za-z0-9_]{1,16}$")
 
         // 요청사항: 전 타입 + 하위 진화체/다양성 강화
         private val DEFAULT_RIFT_TYPES = listOf(
@@ -165,6 +177,8 @@ class TemporalRiftEvent : EventHandler {
 
         val (_, pos) = location
         event.eventLocation = pos
+        event.setData(DATA_RIFT_LAST_OUTSIDE_POINTS, mutableMapOf<String, RiftReturnSnapshot>())
+        event.setData(DATA_RIFT_RETURN_POINTS, mutableMapOf<String, RiftReturnSnapshot>())
 
         val portalEnabled = isImmersivePortalsLoaded()
         val riftWorld = findWorldById(server, RIFT_REALM_DIMENSION_ID)
@@ -236,6 +250,9 @@ class TemporalRiftEvent : EventHandler {
 
     override fun onTick(event: ActiveEvent, server: MinecraftServer) {
         val entrancePos = event.eventLocation ?: return
+        if (event.getData<Boolean>(DATA_RIFT_PORTAL_ACTIVE) == true && event.ticksRemaining % 20L == 0L) {
+            updatePortalReturnSnapshots(event, server)
+        }
 
         if (event.ticksRemaining % 60 == 0L) {
             spawnRiftParticles(server.overworld, entrancePos)
@@ -282,6 +299,7 @@ class TemporalRiftEvent : EventHandler {
         val selectedRift = event.getData<RiftTypeEntry>(DATA_SELECTED_RIFT)
         val riftName = selectedRift?.displayName ?: "시공의 균열"
 
+        val returned = teleportPlayersOutOfRift(event, server)
         removePortalPair(event, server)
         val despawned = despawnTrackedEntities(event, server)
 
@@ -301,6 +319,7 @@ class TemporalRiftEvent : EventHandler {
             listOf(
                 "§7참가자: §f${event.participants.size}명",
                 "§7총 포획: §e${event.participants.values.sum()}마리",
+                "§7복귀 이동: §b${returned}명",
                 "§7이벤트 스폰 디스폰: §c${despawned}마리"
             )
         )
@@ -513,6 +532,95 @@ class TemporalRiftEvent : EventHandler {
         world.setBlockState(center.south().up(2), theme.dome, Block.NOTIFY_ALL)
         world.setBlockState(center.east().up(2), theme.dome, Block.NOTIFY_ALL)
         world.setBlockState(center.west().up(2), theme.dome, Block.NOTIFY_ALL)
+    }
+
+    private fun updatePortalReturnSnapshots(event: ActiveEvent, server: MinecraftServer) {
+        if (event.getData<Boolean>(DATA_RIFT_PORTAL_ACTIVE) != true) return
+        val entrancePos = event.eventLocation ?: return
+
+        val outsideSnapshots =
+            event.getData<MutableMap<String, RiftReturnSnapshot>>(DATA_RIFT_LAST_OUTSIDE_POINTS) ?: mutableMapOf()
+        val returnSnapshots =
+            event.getData<MutableMap<String, RiftReturnSnapshot>>(DATA_RIFT_RETURN_POINTS) ?: mutableMapOf()
+
+        for (player in server.playerManager.playerList) {
+            val key = player.uuid.toString()
+            if (isInsideRiftRealm(event, player)) {
+                if (!returnSnapshots.containsKey(key)) {
+                    returnSnapshots[key] = outsideSnapshots[key]
+                        ?: RiftReturnSnapshot(
+                            dimensionId = "minecraft:overworld",
+                            x = entrancePos.x + 0.5,
+                            y = entrancePos.y + 1.0,
+                            z = entrancePos.z + 0.5,
+                            yaw = player.yaw,
+                            pitch = player.pitch
+                        )
+                }
+            } else {
+                outsideSnapshots[key] = RiftReturnSnapshot(
+                    dimensionId = player.serverWorld.registryKey.value.toString(),
+                    x = player.x,
+                    y = player.y,
+                    z = player.z,
+                    yaw = player.yaw,
+                    pitch = player.pitch
+                )
+            }
+        }
+
+        event.setData(DATA_RIFT_LAST_OUTSIDE_POINTS, outsideSnapshots)
+        event.setData(DATA_RIFT_RETURN_POINTS, returnSnapshots)
+    }
+
+    private fun teleportPlayersOutOfRift(event: ActiveEvent, server: MinecraftServer): Int {
+        if (event.getData<Boolean>(DATA_RIFT_PORTAL_ACTIVE) != true) return 0
+
+        val entrancePos = event.eventLocation
+        val outsideSnapshots =
+            event.getData<MutableMap<String, RiftReturnSnapshot>>(DATA_RIFT_LAST_OUTSIDE_POINTS) ?: mutableMapOf()
+        val returnSnapshots =
+            event.getData<MutableMap<String, RiftReturnSnapshot>>(DATA_RIFT_RETURN_POINTS) ?: mutableMapOf()
+        var moved = 0
+
+        for (player in server.playerManager.playerList) {
+            if (!isInsideRiftRealm(event, player)) continue
+            val playerName = player.gameProfile.name
+            if (!SAFE_PLAYER_NAME.matches(playerName)) continue
+
+            val fallback = fallbackReturnSnapshot(server, entrancePos, player)
+            val snapshot = returnSnapshots[player.uuid.toString()] ?: outsideSnapshots[player.uuid.toString()] ?: fallback
+            val resolved = if (findWorldById(server, snapshot.dimensionId) != null) snapshot else fallback
+
+            val ok = executeServerCommand(
+                server,
+                "execute in ${resolved.dimensionId} run tp $playerName " +
+                    "${fmt(resolved.x)} ${fmt(resolved.y)} ${fmt(resolved.z)} " +
+                    "${fmt(resolved.yaw.toDouble())} ${fmt(resolved.pitch.toDouble())}"
+            )
+            if (ok) {
+                moved++
+                BroadcastUtil.sendPersonal(player, "${CobblemonEventsMod.config.prefix}§7균열이 닫혀 입장 전 위치로 복귀했습니다.")
+            }
+        }
+
+        return moved
+    }
+
+    private fun fallbackReturnSnapshot(
+        server: MinecraftServer,
+        entrancePos: BlockPos?,
+        sourcePlayer: ServerPlayerEntity
+    ): RiftReturnSnapshot {
+        val target = entrancePos ?: server.overworld.spawnPos
+        return RiftReturnSnapshot(
+            dimensionId = "minecraft:overworld",
+            x = target.x + 0.5,
+            y = target.y + 1.0,
+            z = target.z + 0.5,
+            yaw = sourcePlayer.yaw,
+            pitch = sourcePlayer.pitch
+        )
     }
 
     private fun createPortalPair(

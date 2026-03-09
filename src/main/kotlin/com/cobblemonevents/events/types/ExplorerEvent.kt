@@ -117,9 +117,6 @@ class ExplorerEvent : EventHandler {
         val world = server.overworld
 
         for (player in server.playerManager.playerList) {
-            var closestDist = Double.MAX_VALUE
-            var closestStop: StopData? = null
-
             for (stop in stops) {
                 val claimed = claimedStops[stop.id] ?: continue
                 if (claimed.contains(player.uuid)) continue
@@ -127,22 +124,9 @@ class ExplorerEvent : EventHandler {
                 val dist = player.blockPos.getSquaredDistance(stop.pos)
                 val actualDist = kotlin.math.sqrt(dist.toDouble())
 
-                if (actualDist < closestDist) {
-                    closestDist = actualDist
-                    closestStop = stop
-                }
-
                 if (actualDist <= config.interactRadius) {
                     claimStop(event, player, stop, claimedStops, server)
                 }
-            }
-
-            if (closestStop != null && event.ticksRemaining % 10 == 0L) {
-                val distText = String.format("%.0f", closestDist)
-                BroadcastUtil.sendProgress(
-                    player,
-                    "가장 가까운 포켓스탑: ${distText}블록 (남은 ${event.getRemainingMinutes()}분)"
-                )
             }
         }
 

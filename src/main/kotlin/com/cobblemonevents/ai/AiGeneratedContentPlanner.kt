@@ -14,6 +14,7 @@ import net.minecraft.server.MinecraftServer
 import net.minecraft.server.network.ServerPlayerEntity
 import net.minecraft.util.math.Box
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.random.Random
 
 data class AiGeneratedDecision(
@@ -57,7 +58,9 @@ object AiGeneratedContentPlanner {
     private const val MIN_EVENT_ID_COOLDOWN_TICKS = 20L * 60L * 20L
     private const val TIM_CORE_SCAN_RADIUS = 48.0
     private const val DEFAULT_ADDON_DURATION_MINUTES = 5
-    private const val MAX_ADDON_DURATION_MINUTES = 20
+    private const val MAX_ADDON_DURATION_MINUTES = 10
+    private const val AI_DYNAMIC_DURATION_MINUTES = 5
+    private const val AI_DYNAMIC_DURATION_MAX_MINUTES = 10
     private const val MIN_TARGET_COUNT = 4
     private const val MAX_TARGET_COUNT = 10
     private const val UPCOMING_BASE_EVENT_GUARD_TICKS = 20L * 60L * 6L
@@ -73,7 +76,15 @@ object AiGeneratedContentPlanner {
     private const val PLAYER_BEHAVIOR_RETENTION_TICKS = 20L * 60L * 180L
     private const val PLAYER_BEHAVIOR_MAX_SPECIES = 64
     private const val MAX_TIMCORE_SCAN_PLAYERS = 8
+    private const val AI_LEGENDARY_EVENT_FIXED_CHANCE = 0.0025 // 0.25%
     private const val NEXT_GEN_VERSION_TAG = "v3.1.0-pro-reserved"
+
+    private val legendaryEncounterHints = setOf(
+        "mewtwo", "mew", "lugia", "hooh", "ho-oh",
+        "rayquaza", "dialga", "palkia", "giratina",
+        "xerneas", "yveltal", "reshiram", "zekrom",
+        "kyogre", "groudon", "solgaleo", "lunala"
+    )
 
     private val eventTypeLastExecutedTick = mutableMapOf<String, Long>()
     private val eventIdLastExecutedTick = mutableMapOf<String, Long>()
@@ -217,7 +228,11 @@ object AiGeneratedContentPlanner {
         val behaviorSignal = buildBehaviorSignal(players)
 
         val conceptPrompt = AiProfileRegistry.getConceptPrompt()
-        val addonDurationMinutes = AiProfileRegistry.getDynamicEventDurationMinutes()
+        val addonDurationMinutes = Random.nextInt(
+            AI_DYNAMIC_DURATION_MINUTES,
+            AI_DYNAMIC_DURATION_MAX_MINUTES + 1
+        )
+        val durationTargetCap = resolveDurationTargetCap(addonDurationMinutes)
         val selectedProfile = AiProfileRegistry.pickEnabledProfile()
         val seedTemplates = buildSeedTemplates(conceptPrompt, selectedProfile)
         val promptCatalogTemplates = buildPromptCatalogTemplates(
@@ -330,7 +345,7 @@ object AiGeneratedContentPlanner {
             }
             target = (
                 computeTarget(selected, players.size, averagePartyLevel, dataContext) + advice.targetDelta
-                ).coerceIn(MIN_TARGET_COUNT, MAX_TARGET_COUNT)
+                ).coerceIn(MIN_TARGET_COUNT, durationTargetCap)
             advisorReason = advice.reason
         }
 
@@ -360,11 +375,62 @@ object AiGeneratedContentPlanner {
             advisorReason = listOfNotNull(advisorReason, "tps_guard_fallback_applied").joinToString(" | ")
         }
 
-        target = target.coerceIn(MIN_TARGET_COUNT, MAX_TARGET_COUNT)
+        if (!ignoreCooldown && isLegendaryRaidLikeTemplate(selected)) {
+            val legendaryChance = computeLegendaryEventChance(
+                playerCount = players.size,
+                context = dataContext,
+                template = selected
+            )
+            val chanceLabel = toPercentLabel(legendaryChance)
+            val allowed = Random.nextDouble() < legendaryChance
+            if (!allowed) {
+                val nonLegendaryFallback = selectionCandidates
+                    .asSequence()
+                    .map { it.first }
+                    .firstOrNull { !isLegendaryRaidLikeTemplate(it) }
+
+                if (nonLegendaryFallback == null) {
+                    val decision = AiGeneratedDecision(
+                        executed = false,
+                        reason = "legendary_ai_probability_gate_blocked",
+                        selectedProfileId = selectedProfile?.id,
+                        playerCount = players.size,
+                        averagePartyLevel = averagePartyLevel,
+                        timCoreTaggedNearby = dataContext.timCoreTaggedNearby,
+                        trigger = trigger
+                    )
+                    lastDecision = decision
+                    return decision
+                }
+
+                selected = nonLegendaryFallback
+                target = computeTarget(selected, players.size, averagePartyLevel, dataContext)
+                advisorReason = listOfNotNull(advisorReason, "legendary_ai_gate_fallback($chanceLabel)").joinToString(" | ")
+            } else {
+                advisorReason = listOfNotNull(advisorReason, "legendary_ai_gate_pass($chanceLabel)").joinToString(" | ")
+            }
+        }
+
+        val durationScaledTarget = applyDurationTargetScale(
+            target = target,
+            durationMinutes = addonDurationMinutes,
+            durationTargetCap = durationTargetCap
+        )
+        if (durationScaledTarget != target) {
+            advisorReason = listOfNotNull(
+                advisorReason,
+                "duration_target_scaled:${target}->${durationScaledTarget}(${addonDurationMinutes}m)"
+            ).joinToString(" | ")
+            target = durationScaledTarget
+        } else {
+            target = target.coerceIn(MIN_TARGET_COUNT, durationTargetCap)
+        }
+
         val scaledTarget = applyTpsTargetScale(target, estimatedTps)
-        if (scaledTarget != target) {
-            advisorReason = listOfNotNull(advisorReason, "tps_target_scaled:${target}->${scaledTarget}").joinToString(" | ")
-            target = scaledTarget
+        val finalScaledTarget = scaledTarget.coerceIn(MIN_TARGET_COUNT, durationTargetCap)
+        if (finalScaledTarget != target) {
+            advisorReason = listOfNotNull(advisorReason, "tps_target_scaled:${target}->${finalScaledTarget}").joinToString(" | ")
+            target = finalScaledTarget
         }
         val runtimeDef = buildRuntimeDefinition(selected, addonDurationMinutes)
 
@@ -389,7 +455,8 @@ object AiGeneratedContentPlanner {
             "ai_dynamic_target" to target,
             "ai_dynamic_template_id" to selected.id,
             "ai_dynamic_profile" to (selectedProfile?.id ?: "none"),
-            "ai_dynamic_source" to selected.sourceTag
+            "ai_dynamic_source" to selected.sourceTag,
+            "ai_dynamic_category" to selected.category
         )
         selected.themeType?.let { initialData["ai_dynamic_theme_type"] = it }
         selected.targetBiome?.let { initialData["ai_dynamic_target_biome"] = it }
@@ -405,9 +472,10 @@ object AiGeneratedContentPlanner {
         val decision = if (started) {
             markExecuted(selected)
             markTemplateConsumed(selected.id, templates)
+            val displayName = resolveKoreanTemplateName(selected)
             BroadcastUtil.broadcast(
                 server,
-                "${CobblemonEventsMod.config.prefix}[AI Dynamic] 신규 창의 이벤트 '${selected.displayName}' 시작 " +
+                "${CobblemonEventsMod.config.prefix}[AI Dynamic] 신규 창의 이벤트 '${displayName}' 시작 " +
                     "(모드:${selected.mode}, 목표:${target}, ${addonDurationMinutes}분, 프로필:${selectedProfile?.id ?: "none"}" +
                     (if (advisorUsed) ", 외부AI보정:on" else ", 외부AI보정:off") + ")"
             )
@@ -582,9 +650,9 @@ object AiGeneratedContentPlanner {
                 category = "type_surge",
                 mode = "variety",
                 targetLevel = 32.0,
-                baseTarget = 4,
+                baseTarget = 3,
                 rewardTier = 2,
-                weight = 1.1,
+                weight = 0.72,
                 cooldownGroup = "variety"
             ),
             AiDynamicTemplate(
@@ -618,9 +686,9 @@ object AiGeneratedContentPlanner {
                 category = "legendary_tracking",
                 mode = "variety",
                 targetLevel = 45.0,
-                baseTarget = 6,
+                baseTarget = 5,
                 rewardTier = 2,
-                weight = 0.95,
+                weight = 0.55,
                 cooldownGroup = "variety"
             ),
             AiDynamicTemplate(
@@ -630,22 +698,28 @@ object AiGeneratedContentPlanner {
                 category = "type_surge",
                 mode = "variety",
                 targetLevel = 36.0,
-                baseTarget = 6,
+                baseTarget = 5,
                 rewardTier = 2,
-                weight = 1.0,
+                weight = 0.65,
                 cooldownGroup = "variety"
             )
         )
 
         // 프롬프트 방향성 반영
         if (containsAny(prompt, "탐험", "포획", "explorer", "catch")) {
-            base.replaceAll { if (it.mode == "catch" || it.mode == "variety") it.copy(weight = it.weight + 0.4) else it }
+            base.replaceAll {
+                when (it.mode) {
+                    "catch" -> it.copy(weight = it.weight + 0.35)
+                    "variety" -> it.copy(weight = it.weight + 0.08)
+                    else -> it
+                }
+            }
         }
         if (containsAny(prompt, "전투", "배틀", "raid", "battle")) {
             base.replaceAll { if (it.mode == "battle" || it.mode == "hybrid") it.copy(weight = it.weight + 0.5) else it }
         }
         if (containsAny(prompt, "다양성", "도감", "variety")) {
-            base.replaceAll { if (it.mode == "variety") it.copy(weight = it.weight + 0.6) else it }
+            base.replaceAll { if (it.mode == "variety") it.copy(weight = it.weight + 0.22) else it }
         }
 
         return base
@@ -679,7 +753,7 @@ object AiGeneratedContentPlanner {
 
         val prompt = (conceptPrompt + " " + (selectedProfile?.prompt ?: "")).lowercase()
 
-        return selectedRaw.mapNotNull { raw ->
+        return selectedRaw.mapIndexedNotNull { index, raw ->
             val mode = normalizeMode(raw.mode)
             val category = normalizeArchetype(raw.category, mode)
             val sanitizedId = sanitizeIdPart(raw.id).ifBlank {
@@ -699,7 +773,7 @@ object AiGeneratedContentPlanner {
 
             AiDynamicTemplate(
                 id = "pc_$sanitizedId",
-                displayName = raw.displayName.take(40),
+                displayName = localizePromptCatalogName(raw, category, mode, index).take(40),
                 description = raw.description.take(180),
                 category = category,
                 mode = mode,
@@ -729,7 +803,7 @@ object AiGeneratedContentPlanner {
         if (containsAny(prompt, "배틀", "raid", "battle", "전투") && (mode == "battle" || mode == "hybrid")) {
             boost += 0.32
         }
-        if (containsAny(prompt, "도감", "variety", "diversity", "탐험") && mode == "variety") boost += 0.30
+        if (containsAny(prompt, "도감", "variety", "diversity", "탐험") && mode == "variety") boost += 0.10
 
         if (containsAny(prompt, "world raid", "월드 레이드") && category == "world_raid") boost += 0.22
         if (containsAny(prompt, "migration", "대이동") && category == "migration") boost += 0.22
@@ -952,19 +1026,19 @@ object AiGeneratedContentPlanner {
         val weightedModes = mutableListOf<String>()
         repeat(3) { weightedModes.add("catch") }
         repeat(3) { weightedModes.add("battle") }
-        repeat(2) { weightedModes.add("variety") }
+        repeat(1) { weightedModes.add("variety") }
         repeat(2) { weightedModes.add("hybrid") }
 
         if (containsAny(prompt, "포획", "catch", "collector", "수집")) {
             repeat(3) { weightedModes.add("catch") }
-            repeat(2) { weightedModes.add("variety") }
+            repeat(1) { weightedModes.add("variety") }
         }
         if (containsAny(prompt, "배틀", "전투", "raid", "battle")) {
             repeat(3) { weightedModes.add("battle") }
             repeat(2) { weightedModes.add("hybrid") }
         }
         if (containsAny(prompt, "도감", "variety", "다양")) {
-            repeat(3) { weightedModes.add("variety") }
+            repeat(2) { weightedModes.add("variety") }
         }
         if (containsAny(prompt, "복합", "혼합", "hybrid", "combo")) {
             repeat(3) { weightedModes.add("hybrid") }
@@ -1003,12 +1077,12 @@ object AiGeneratedContentPlanner {
     }
 
     private fun pickEventArchetype(): String {
-        val roll = Random.nextInt(100)
+        val roll = Random.nextDouble(100.0)
         return when {
-            roll < 55 -> "general"
-            roll < 75 -> "migration"
-            roll < 90 -> "world_raid"
-            roll < 95 -> "legendary_tracking"
+            roll < 56.0 -> "general"
+            roll < 76.0 -> "migration"
+            roll < 91.0 -> "world_raid"
+            roll < 92.5 -> "legendary_tracking" // 1.5%
             else -> "type_surge"
         }
     }
@@ -1055,6 +1129,103 @@ object AiGeneratedContentPlanner {
         }
     }
 
+    private fun modeLabelKo(mode: String): String {
+        return when (mode) {
+            "catch" -> "포획형"
+            "battle" -> "전투형"
+            "variety" -> "추적형"
+            "hybrid" -> "협동형"
+            else -> "일반형"
+        }
+    }
+
+    private fun categoryLabelKo(category: String): String {
+        return when (category) {
+            "general" -> "일반 이벤트"
+            "migration" -> "포켓몬 대이동"
+            "world_raid" -> "월드 레이드"
+            "legendary_tracking" -> "전설 추적"
+            "type_surge" -> "타입 대폭주"
+            else -> "AI 이벤트"
+        }
+    }
+
+    private fun typeLabelKo(themeType: String?): String? {
+        return when (themeType?.trim()?.lowercase()) {
+            "normal" -> "노말"
+            "fire" -> "불꽃"
+            "water" -> "물"
+            "electric" -> "전기"
+            "grass" -> "풀"
+            "ice" -> "얼음"
+            "fighting" -> "격투"
+            "poison" -> "독"
+            "ground" -> "땅"
+            "flying" -> "비행"
+            "psychic" -> "에스퍼"
+            "bug" -> "벌레"
+            "rock" -> "바위"
+            "ghost" -> "고스트"
+            "dragon" -> "드래곤"
+            "dark" -> "악"
+            "steel" -> "강철"
+            "fairy" -> "페어리"
+            else -> null
+        }
+    }
+
+    private fun localizePromptCatalogName(
+        raw: PromptTemplateEntry,
+        category: String,
+        mode: String,
+        index: Int
+    ): String {
+        val categoryKo = categoryLabelKo(category)
+        val modeKo = modeLabelKo(mode)
+        val themeKo = typeLabelKo(raw.themeType)
+        val number = Regex("""\d+""")
+            .find(raw.sourceEventName ?: raw.id)
+            ?.value
+            ?: (index + 1).toString()
+
+        val themePart = if (themeKo.isNullOrBlank()) "" else "·$themeKo"
+        return "$categoryKo $modeKo $number$themePart"
+    }
+
+    private fun resolveKoreanTemplateName(template: AiDynamicTemplate): String {
+        val raw = template.displayName.trim()
+        val hasHangul = raw.any { it in '가'..'힣' }
+        if (hasHangul) return raw
+
+        val categoryKo = categoryLabelKo(template.category)
+        val modeKo = modeLabelKo(template.mode)
+        val themeKo = typeLabelKo(template.themeType)
+        return if (themeKo.isNullOrBlank()) {
+            "$categoryKo $modeKo"
+        } else {
+            "$categoryKo $modeKo·$themeKo"
+        }
+    }
+
+    private fun isLegendaryRaidLikeTemplate(template: AiDynamicTemplate): Boolean {
+        if (template.category == "legendary_tracking") return true
+        if (template.mode != "battle" && template.mode != "hybrid") return false
+
+        val special = template.specialEncounter?.trim()?.lowercase().orEmpty()
+        if (special in legendaryEncounterHints) return true
+
+        val text = (
+            template.displayName + " " +
+                template.description + " " +
+                (template.specialEncounter ?: "")
+            ).lowercase()
+
+        if (containsAny(text, "전설", "legend", "legendary", "raid boss", "레전더리")) {
+            return true
+        }
+        return legendaryEncounterHints.any { text.contains(it) }
+    }
+
     private fun sanitizeIdPart(value: String?): String {
         val src = value?.trim()?.lowercase().orEmpty()
         if (src.isBlank()) return ""
@@ -1096,7 +1267,7 @@ object AiGeneratedContentPlanner {
                 score += 4.0
             }
             "variety" -> {
-                if (playerCount <= 4) score += 6.0
+                if (playerCount <= 4) score += 2.0
             }
         }
 
@@ -1105,7 +1276,7 @@ object AiGeneratedContentPlanner {
                 score -= 10.0
             }
             if (context.timCoreTaggedNearby <= 20 && template.mode == "variety") {
-                score += 4.0
+                score += 1.0
             }
         }
 
@@ -1132,8 +1303,8 @@ object AiGeneratedContentPlanner {
         when (template.category) {
             "migration" -> if (template.mode == "catch") score += 3.0
             "world_raid" -> if (template.mode == "battle" || template.mode == "hybrid") score += 3.0
-            "legendary_tracking" -> if (template.mode == "variety") score += 2.0
-            "type_surge" -> if (template.mode == "variety") score += 2.0
+            "legendary_tracking" -> if (template.mode == "variety") score += 1.0
+            "type_surge" -> if (template.mode == "variety") score += 1.0
         }
 
         val prompt = (conceptPrompt + " " + (selectedProfile?.prompt ?: "")).lowercase()
@@ -1170,12 +1341,17 @@ object AiGeneratedContentPlanner {
             else -> 0
         }
         val modeAdjust = when (template.mode) {
-            "variety" -> -1
+            "variety" -> -2
             "hybrid" -> 1
             else -> 0
         }
         val base = template.baseTarget + (playerCount / 4) + levelAdjust + modeAdjust
-        return base.coerceIn(range.first, range.last).coerceIn(MIN_TARGET_COUNT, MAX_TARGET_COUNT)
+        val computed = base.coerceIn(range.first, range.last).coerceIn(MIN_TARGET_COUNT, MAX_TARGET_COUNT)
+        return if (template.mode == "variety") {
+            (computed - 1).coerceAtLeast(MIN_TARGET_COUNT)
+        } else {
+            computed
+        }
     }
 
     private fun resolveDifficultyBand(
@@ -1218,6 +1394,7 @@ object AiGeneratedContentPlanner {
             .takeIf { it > 0 }
             ?.coerceAtMost(MAX_ADDON_DURATION_MINUTES)
             ?: DEFAULT_ADDON_DURATION_MINUTES
+        val displayName = resolveKoreanTemplateName(template)
 
         val detailParts = mutableListOf<String>()
         if (!template.themeType.isNullOrBlank()) detailParts.add("theme=${template.themeType}")
@@ -1232,7 +1409,7 @@ object AiGeneratedContentPlanner {
 
         return EventDefinition(
             id = "aidyn_${template.id}_${System.currentTimeMillis()}",
-            displayName = "AI ${template.displayName}",
+            displayName = "AI $displayName",
             description = description,
             enabled = true,
             intervalMinutes = Int.MAX_VALUE,
@@ -1486,6 +1663,49 @@ object AiGeneratedContentPlanner {
             estimatedTps < 18.0 -> (target - 1).coerceAtLeast(MIN_TARGET_COUNT)
             else -> target
         }
+    }
+
+    private fun resolveDurationTargetCap(durationMinutes: Int): Int {
+        val safeDuration = durationMinutes.coerceIn(
+            AI_DYNAMIC_DURATION_MINUTES,
+            AI_DYNAMIC_DURATION_MAX_MINUTES
+        )
+        val extraMinutes = (safeDuration - AI_DYNAMIC_DURATION_MINUTES).coerceAtLeast(0)
+        return (MAX_TARGET_COUNT + extraMinutes).coerceAtMost(MAX_TARGET_COUNT + 5)
+    }
+
+    private fun applyDurationTargetScale(
+        target: Int,
+        durationMinutes: Int,
+        durationTargetCap: Int
+    ): Int {
+        val safeDuration = durationMinutes.coerceIn(
+            AI_DYNAMIC_DURATION_MINUTES,
+            AI_DYNAMIC_DURATION_MAX_MINUTES
+        )
+        val extraMinutes = (safeDuration - AI_DYNAMIC_DURATION_MINUTES).coerceAtLeast(0)
+        if (extraMinutes <= 0) {
+            return target.coerceIn(MIN_TARGET_COUNT, durationTargetCap)
+        }
+
+        // 5분 기준에서 1분 증가마다 +1.5 목표를 반영한다.
+        val bonus = (extraMinutes * 1.5).roundToInt()
+        return (target + bonus).coerceIn(MIN_TARGET_COUNT, durationTargetCap)
+    }
+
+    private fun computeLegendaryEventChance(
+        playerCount: Int,
+        context: PlannerDataContext,
+        template: AiDynamicTemplate
+    ): Double {
+        return AI_LEGENDARY_EVENT_FIXED_CHANCE
+    }
+
+    private fun toPercentLabel(chance: Double): String {
+        val scaled = (chance * 1000.0).toInt().coerceAtLeast(0) // x10 percent
+        val whole = scaled / 10
+        val frac = scaled % 10
+        return "p=${whole}.${frac}%"
     }
 
     private fun containsAny(text: String, vararg keywords: String): Boolean {

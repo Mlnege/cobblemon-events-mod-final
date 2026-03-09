@@ -8,18 +8,76 @@ import com.cobblemonevents.events.EventHandler
 import com.cobblemonevents.rewards.RewardManager
 import com.cobblemonevents.util.BroadcastUtil
 import com.cobblemonevents.util.SpawnHelper
+import net.fabricmc.loader.api.FabricLoader
+import net.minecraft.block.Block
+import net.minecraft.block.BlockState
+import net.minecraft.block.Blocks
 import net.minecraft.particle.ParticleTypes
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.network.ServerPlayerEntity
 import net.minecraft.server.world.ServerWorld
+import net.minecraft.util.Identifier
 import net.minecraft.util.math.BlockPos
+import net.minecraft.world.Heightmap
 import java.util.UUID
+import java.util.Locale
 import kotlin.random.Random
 
 class TemporalRiftEvent : EventHandler {
+    private data class RiftArenaTheme(
+        val id: String,
+        val floor: BlockState,
+        val ring: BlockState,
+        val outer: BlockState,
+        val dome: BlockState,
+        val pillar: BlockState,
+        val core: BlockState
+    )
+
+    private val riftThemes: Map<String, RiftArenaTheme> by lazy {
+        mapOf(
+            "normal" to RiftArenaTheme("normal", Blocks.SMOOTH_STONE.defaultState, Blocks.CALCITE.defaultState, Blocks.DIORITE.defaultState, Blocks.WHITE_STAINED_GLASS.defaultState, Blocks.QUARTZ_PILLAR.defaultState, Blocks.GLOWSTONE.defaultState),
+            "fire" to RiftArenaTheme("fire", Blocks.BLACKSTONE.defaultState, Blocks.MAGMA_BLOCK.defaultState, Blocks.NETHER_BRICKS.defaultState, Blocks.RED_STAINED_GLASS.defaultState, Blocks.POLISHED_BLACKSTONE_BRICKS.defaultState, Blocks.SHROOMLIGHT.defaultState),
+            "water" to RiftArenaTheme("water", Blocks.PRISMARINE.defaultState, Blocks.DARK_PRISMARINE.defaultState, Blocks.PRISMARINE_BRICKS.defaultState, Blocks.LIGHT_BLUE_STAINED_GLASS.defaultState, Blocks.WARPED_PLANKS.defaultState, Blocks.SEA_LANTERN.defaultState),
+            "electric" to RiftArenaTheme("electric", Blocks.YELLOW_CONCRETE.defaultState, Blocks.YELLOW_GLAZED_TERRACOTTA.defaultState, Blocks.BLACK_CONCRETE.defaultState, Blocks.YELLOW_STAINED_GLASS.defaultState, Blocks.LIGHTNING_ROD.defaultState, Blocks.REDSTONE_LAMP.defaultState),
+            "grass" to RiftArenaTheme("grass", Blocks.MOSS_BLOCK.defaultState, Blocks.MOSSY_COBBLESTONE.defaultState, Blocks.ROOTED_DIRT.defaultState, Blocks.LIME_STAINED_GLASS.defaultState, Blocks.OAK_LOG.defaultState, Blocks.VERDANT_FROGLIGHT.defaultState),
+            "ice" to RiftArenaTheme("ice", Blocks.PACKED_ICE.defaultState, Blocks.BLUE_ICE.defaultState, Blocks.SNOW_BLOCK.defaultState, Blocks.CYAN_STAINED_GLASS.defaultState, Blocks.POLISHED_DIORITE.defaultState, Blocks.PEARLESCENT_FROGLIGHT.defaultState),
+            "fighting" to RiftArenaTheme("fighting", Blocks.POLISHED_ANDESITE.defaultState, Blocks.TUFF_BRICKS.defaultState, Blocks.STONE_BRICKS.defaultState, Blocks.GRAY_STAINED_GLASS.defaultState, Blocks.CHISELED_STONE_BRICKS.defaultState, Blocks.LANTERN.defaultState),
+            "poison" to RiftArenaTheme("poison", Blocks.PURPLE_CONCRETE.defaultState, Blocks.AMETHYST_BLOCK.defaultState, Blocks.SLIME_BLOCK.defaultState, Blocks.PURPLE_STAINED_GLASS.defaultState, Blocks.PURPUR_PILLAR.defaultState, Blocks.OCHRE_FROGLIGHT.defaultState),
+            "ground" to RiftArenaTheme("ground", Blocks.BROWN_TERRACOTTA.defaultState, Blocks.PACKED_MUD.defaultState, Blocks.MUD_BRICKS.defaultState, Blocks.ORANGE_STAINED_GLASS.defaultState, Blocks.DRIPSTONE_BLOCK.defaultState, Blocks.SHROOMLIGHT.defaultState),
+            "flying" to RiftArenaTheme("flying", Blocks.QUARTZ_BLOCK.defaultState, Blocks.SMOOTH_QUARTZ.defaultState, Blocks.WHITE_CONCRETE.defaultState, Blocks.WHITE_STAINED_GLASS.defaultState, Blocks.CHISELED_QUARTZ_BLOCK.defaultState, Blocks.END_ROD.defaultState),
+            "psychic" to RiftArenaTheme("psychic", Blocks.PURPUR_BLOCK.defaultState, Blocks.AMETHYST_BLOCK.defaultState, Blocks.PINK_CONCRETE.defaultState, Blocks.PINK_STAINED_GLASS.defaultState, Blocks.PURPUR_PILLAR.defaultState, Blocks.END_ROD.defaultState),
+            "bug" to RiftArenaTheme("bug", Blocks.LIME_TERRACOTTA.defaultState, Blocks.MOSS_BLOCK.defaultState, Blocks.GREEN_CONCRETE.defaultState, Blocks.GREEN_STAINED_GLASS.defaultState, Blocks.BAMBOO_BLOCK.defaultState, Blocks.VERDANT_FROGLIGHT.defaultState),
+            "rock" to RiftArenaTheme("rock", Blocks.STONE.defaultState, Blocks.COBBLESTONE.defaultState, Blocks.DEEPSLATE.defaultState, Blocks.GRAY_STAINED_GLASS.defaultState, Blocks.POLISHED_ANDESITE.defaultState, Blocks.LANTERN.defaultState),
+            "ghost" to RiftArenaTheme("ghost", Blocks.SOUL_SOIL.defaultState, Blocks.POLISHED_BLACKSTONE.defaultState, Blocks.CRYING_OBSIDIAN.defaultState, Blocks.PURPLE_STAINED_GLASS.defaultState, Blocks.DEEPSLATE_BRICKS.defaultState, Blocks.SOUL_LANTERN.defaultState),
+            "dragon" to RiftArenaTheme("dragon", Blocks.OBSIDIAN.defaultState, Blocks.PURPUR_BLOCK.defaultState, Blocks.END_STONE_BRICKS.defaultState, Blocks.MAGENTA_STAINED_GLASS.defaultState, Blocks.PURPUR_PILLAR.defaultState, Blocks.END_ROD.defaultState),
+            "dark" to RiftArenaTheme("dark", Blocks.POLISHED_BLACKSTONE.defaultState, Blocks.DEEPSLATE_BRICKS.defaultState, Blocks.BLACKSTONE.defaultState, Blocks.BLACK_STAINED_GLASS.defaultState, Blocks.CHISELED_DEEPSLATE.defaultState, Blocks.SOUL_LANTERN.defaultState),
+            "steel" to RiftArenaTheme("steel", Blocks.IRON_BLOCK.defaultState, Blocks.POLISHED_TUFF.defaultState, Blocks.HEAVY_CORE.defaultState, Blocks.LIGHT_GRAY_STAINED_GLASS.defaultState, Blocks.CHAIN.defaultState, Blocks.REDSTONE_LAMP.defaultState),
+            "fairy" to RiftArenaTheme("fairy", Blocks.PINK_CONCRETE.defaultState, Blocks.CHERRY_PLANKS.defaultState, Blocks.PEARLESCENT_FROGLIGHT.defaultState, Blocks.PINK_STAINED_GLASS.defaultState, Blocks.QUARTZ_PILLAR.defaultState, Blocks.SEA_LANTERN.defaultState),
+            "legendary" to RiftArenaTheme("legendary", Blocks.OBSIDIAN.defaultState, Blocks.GILDED_BLACKSTONE.defaultState, Blocks.END_STONE.defaultState, Blocks.MAGENTA_STAINED_GLASS.defaultState, Blocks.CRYING_OBSIDIAN.defaultState, Blocks.BEACON.defaultState)
+        )
+    }
+
     companion object {
         private const val DATA_SELECTED_RIFT = "selectedRift"
         private const val DATA_SPAWNED_ENTITY_UUIDS = "riftSpawnedEntityUuids"
+        private const val DATA_RIFT_PORTAL_ACTIVE = "riftPortalActive"
+        private const val DATA_RIFT_PORTAL_NAME = "riftPortalName"
+        private const val DATA_RIFT_REALM_CENTER = "riftRealmCenter"
+        private const val DATA_RIFT_SPECIES_POOL = "riftSpeciesPool"
+        private const val DATA_RIFT_THEME_ID = "riftThemeId"
+        private const val MISSION_CLEAR_CATCH_COUNT = 2
+        private const val IMMERSIVE_PORTALS_MOD_ID = "immersive_portals"
+        private const val RIFT_REALM_DIMENSION_ID = "minecraft:the_end"
+        private const val RIFT_ARENA_Y = 96
+        private const val RIFT_ARENA_RADIUS = 22
+        private const val RIFT_DOME_HEIGHT = 14
+        private const val RIFT_CAPTURE_RADIUS_SQ = 60.0 * 60.0
+        private const val RIFT_SHINY_CHANCE = 0.05
+        private const val RIFT_DITTO_CHANCE = 0.05
+        private const val ADDITIONAL_SPAWN_INTERVAL_TICKS = 20L * 120L
+        private const val TEMPLATE_NAMESPACE = "cobblemon-events"
+        private const val TEMPLATE_PREFIX = "rift"
 
         // 요청사항: 전 타입 + 하위 진화체/다양성 강화
         private val DEFAULT_RIFT_TYPES = listOf(
@@ -83,10 +141,21 @@ class TemporalRiftEvent : EventHandler {
     override fun onStart(event: ActiveEvent, server: MinecraftServer) {
         val riftConfig = event.definition.riftConfig ?: return
         val riftTypes = resolveRiftTypes(riftConfig.riftTypes)
-        if (riftTypes.isEmpty()) return
-
+        if (riftTypes.isEmpty()) {
+            CobblemonEventsMod.LOGGER.warn("[TemporalRift] 타입 정의가 비어 있어 시작을 취소합니다.")
+            return
+        }
         val selectedRift = riftTypes.random()
+        val selectedTheme = resolveThemeForRift(selectedRift)
         event.setData(DATA_SELECTED_RIFT, selectedRift)
+        event.setData(DATA_RIFT_THEME_ID, selectedTheme.id)
+
+        val speciesPool = buildUnifiedSpeciesPool(riftTypes)
+        if (speciesPool.isEmpty()) {
+            CobblemonEventsMod.LOGGER.warn("[TemporalRift] 포켓몬 풀이 비어 있어 시작을 취소합니다.")
+            return
+        }
+        event.setData(DATA_RIFT_SPECIES_POOL, speciesPool)
 
         val location = SpawnHelper.findRandomEventLocation(server, riftConfig.riftSearchRadius)
         if (location == null) {
@@ -97,18 +166,59 @@ class TemporalRiftEvent : EventHandler {
         val (_, pos) = location
         event.eventLocation = pos
 
-        val world = server.overworld
-        val spawned = SpawnHelper.spawnMultiplePokemon(
-            world = world,
-            speciesList = selectedRift.pokemonPool,
-            centerPos = pos,
-            radius = riftConfig.spawnRadius,
+        val portalEnabled = isImmersivePortalsLoaded()
+        val riftWorld = findWorldById(server, RIFT_REALM_DIMENSION_ID)
+
+        val (spawnWorld, spawnCenter) = if (portalEnabled && riftWorld != null) {
+            val realmCenter = createRealmCenter()
+            event.setData(DATA_RIFT_REALM_CENTER, realmCenter)
+            val imported = tryImportArenaTemplate(server, realmCenter, selectedTheme.id)
+            if (!imported) {
+                buildRiftArena(riftWorld, realmCenter, selectedTheme)
+            }
+            buildEntrancePedestal(server.overworld, pos, selectedTheme)
+
+            val portalName = "ce_rift_${System.currentTimeMillis()}"
+            val portalReady = createPortalPair(server, pos, realmCenter, portalName)
+            event.setData(DATA_RIFT_PORTAL_ACTIVE, portalReady)
+            if (portalReady) {
+                event.setData(DATA_RIFT_PORTAL_NAME, portalName)
+                BroadcastUtil.broadcast(
+                    server,
+                    "${CobblemonEventsMod.config.prefix}§d${selectedRift.displayName} §f테마 균열 포털이 열렸습니다! §7입구에서 문으로 들어가세요."
+                )
+            } else {
+                BroadcastUtil.broadcast(
+                    server,
+                    "${CobblemonEventsMod.config.prefix}§c포털 생성에 실패하여 오버월드 방식으로 진행합니다."
+                )
+            }
+            if (portalReady) Pair(riftWorld, realmCenter) else Pair(server.overworld, pos)
+        } else {
+            event.setData(DATA_RIFT_PORTAL_ACTIVE, false)
+            if (!portalEnabled) {
+                BroadcastUtil.broadcast(
+                    server,
+                    "${CobblemonEventsMod.config.prefix}§7Immersive Portals 미설치 - 오버월드 방식으로 진행합니다."
+                )
+            } else {
+                BroadcastUtil.broadcast(
+                    server,
+                    "${CobblemonEventsMod.config.prefix}§7균열 차원 월드를 찾지 못해 오버월드 방식으로 진행합니다."
+                )
+            }
+            Pair(server.overworld, pos)
+        }
+
+        val spawned = spawnRiftWave(
+            event = event,
+            world = spawnWorld,
+            centerPos = spawnCenter,
+            speciesPool = speciesPool,
             count = riftConfig.spawnCount,
             levelMin = riftConfig.pokemonLevelMin,
-            levelMax = riftConfig.pokemonLevelMax,
-            shinyChance = riftConfig.shinyBoost
+            levelMax = riftConfig.pokemonLevelMax
         )
-        rememberSpawnedEntities(event, spawned)
 
         BroadcastUtil.announceRift(
             server,
@@ -120,37 +230,50 @@ class TemporalRiftEvent : EventHandler {
         )
 
         CobblemonEventsMod.LOGGER.info(
-            "[TemporalRift] '${selectedRift.id}' 균열 생성 - 좌표: ${pos.x}, ${pos.y}, ${pos.z}, 스폰: ${spawned.size}"
+            "[TemporalRift] 균열 생성 - 테마:${selectedTheme.id}, 입구: ${pos.x}, ${pos.y}, ${pos.z}, 스폰: $spawned, 포털사용: ${event.getData<Boolean>(DATA_RIFT_PORTAL_ACTIVE) == true}"
         )
     }
 
     override fun onTick(event: ActiveEvent, server: MinecraftServer) {
-        val pos = event.eventLocation ?: return
-        val world = server.overworld
+        val entrancePos = event.eventLocation ?: return
 
         if (event.ticksRemaining % 60 == 0L) {
-            spawnRiftParticles(world, pos)
+            spawnRiftParticles(server.overworld, entrancePos)
+            val realmCenter = event.getData<BlockPos>(DATA_RIFT_REALM_CENTER)
+            val realmWorld = findWorldById(server, RIFT_REALM_DIMENSION_ID)
+            if (realmCenter != null && realmWorld != null) {
+                spawnRiftParticles(realmWorld, realmCenter)
+            }
         }
 
         val riftConfig = event.definition.riftConfig ?: return
-        val selectedRift = event.getData<RiftTypeEntry>(DATA_SELECTED_RIFT) ?: return
+        val speciesPool = event.getData<List<String>>(DATA_RIFT_SPECIES_POOL).orEmpty()
+        if (speciesPool.isEmpty()) return
 
-        if (event.ticksRemaining > 0 && event.ticksRemaining % (20 * 120) == 0L) {
-            val additional = SpawnHelper.spawnMultiplePokemon(
-                world = world,
-                speciesList = selectedRift.pokemonPool,
-                centerPos = pos,
-                radius = riftConfig.spawnRadius,
+        if (event.ticksRemaining > 0 && event.ticksRemaining % ADDITIONAL_SPAWN_INTERVAL_TICKS == 0L) {
+            val usePortalRealm = event.getData<Boolean>(DATA_RIFT_PORTAL_ACTIVE) == true
+            val realmCenter = event.getData<BlockPos>(DATA_RIFT_REALM_CENTER)
+            val realmWorld = findWorldById(server, RIFT_REALM_DIMENSION_ID)
+
+            val (spawnWorld, spawnCenter) = if (usePortalRealm && realmCenter != null && realmWorld != null) {
+                Pair(realmWorld, realmCenter)
+            } else {
+                Pair(server.overworld, entrancePos)
+            }
+
+            val additional = spawnRiftWave(
+                event = event,
+                world = spawnWorld,
+                centerPos = spawnCenter,
+                speciesPool = speciesPool,
                 count = (riftConfig.spawnCount / 2).coerceAtLeast(1),
                 levelMin = riftConfig.pokemonLevelMin,
-                levelMax = riftConfig.pokemonLevelMax,
-                shinyChance = riftConfig.shinyBoost
+                levelMax = riftConfig.pokemonLevelMax
             )
-            rememberSpawnedEntities(event, additional)
 
             BroadcastUtil.broadcast(
                 server,
-                "${CobblemonEventsMod.config.prefix}§d균열에서 추가 포켓몬이 출현했습니다! §7(남은 시간: ${event.getRemainingMinutes()}분)"
+                "${CobblemonEventsMod.config.prefix}§d균열 내부에 추가 포켓몬이 출현했습니다! §7(+${additional}마리, 남은 시간: ${event.getRemainingMinutes()}분)"
             )
         }
     }
@@ -159,13 +282,14 @@ class TemporalRiftEvent : EventHandler {
         val selectedRift = event.getData<RiftTypeEntry>(DATA_SELECTED_RIFT)
         val riftName = selectedRift?.displayName ?: "시공의 균열"
 
-        val despawned = despawnTrackedEntities(event, server.overworld)
+        removePortalPair(event, server)
+        val despawned = despawnTrackedEntities(event, server)
 
         val riftConfig = event.definition.riftConfig ?: return
         for (playerUUID in event.participants.keys) {
             val player = server.playerManager.getPlayer(playerUUID) ?: continue
             val catchCount = event.getProgress(playerUUID)
-            if (catchCount > 0) {
+            if (catchCount >= MISSION_CLEAR_CATCH_COUNT) {
                 RewardManager.giveRewards(player, riftConfig.dropRewards, event.definition)
                 CobblemonEventsMod.rankingManager.recordEventComplete(playerUUID, player.name.string)
             }
@@ -183,19 +307,302 @@ class TemporalRiftEvent : EventHandler {
     }
 
     override fun onPokemonCaught(event: ActiveEvent, player: ServerPlayerEntity, species: String) {
-        val selectedRift = event.getData<RiftTypeEntry>(DATA_SELECTED_RIFT) ?: return
-
-        val isRiftPokemon = selectedRift.pokemonPool.any { it.equals(species, ignoreCase = true) }
-        if (!isRiftPokemon) return
+        val selectedRift = event.getData<RiftTypeEntry>(DATA_SELECTED_RIFT)
+        val usePortalRealm = event.getData<Boolean>(DATA_RIFT_PORTAL_ACTIVE) == true
+        val insideRealm = isInsideRiftRealm(event, player)
+        if (usePortalRealm && !insideRealm) return
+        if (!usePortalRealm) {
+            val speciesPool = event.getData<List<String>>(DATA_RIFT_SPECIES_POOL).orEmpty()
+            if (speciesPool.none { it.equals(species, ignoreCase = true) }) return
+        }
 
         val count = event.addProgress(player.uuid)
-        BroadcastUtil.sendProgress(player, "§d시공의 균열 포획: §f${count}마리 §7(${selectedRift.displayName}§7)")
+        BroadcastUtil.sendProgress(
+            player,
+            "§d시공의 균열 포획: §f${count}/$MISSION_CLEAR_CATCH_COUNT §7(${selectedRift?.displayName ?: "전타입 균열"}§7)"
+        )
+        if (count >= MISSION_CLEAR_CATCH_COUNT && event.completedPlayers.add(player.uuid)) {
+            BroadcastUtil.sendProgress(player, "§d시공의 균열 미션 완료! §f($MISSION_CLEAR_CATCH_COUNT 마리 포획)")
+        }
 
         val riftConfig = event.definition.riftConfig ?: return
         if (Random.nextDouble() < 0.3) {
             RewardManager.giveRewards(player, riftConfig.dropRewards, event.definition)
         }
     }
+
+    private fun buildUnifiedSpeciesPool(riftTypes: List<RiftTypeEntry>): List<String> {
+        return riftTypes
+            .flatMap { it.pokemonPool }
+            .map { it.trim().lowercase() }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
+
+    private fun resolveThemeForRift(rift: RiftTypeEntry): RiftArenaTheme {
+        val keys = mutableListOf<String>()
+        keys += rift.id.trim().lowercase()
+        keys += rift.types.map { it.trim().lowercase() }
+        for (key in keys) {
+            val theme = riftThemes[key]
+            if (theme != null) return theme
+        }
+        return riftThemes.getValue("normal")
+    }
+
+    private fun spawnRiftWave(
+        event: ActiveEvent,
+        world: ServerWorld,
+        centerPos: BlockPos,
+        speciesPool: List<String>,
+        count: Int,
+        levelMin: Int,
+        levelMax: Int
+    ): Int {
+        val safeMin = levelMin.coerceAtLeast(1)
+        val safeMax = levelMax.coerceAtLeast(safeMin)
+        val spawned = mutableListOf<PokemonEntity>()
+
+        repeat(count.coerceAtLeast(0)) {
+            val species = selectRiftSpecies(speciesPool)
+            val spawnPos = randomSpawnPos(world, centerPos, RIFT_ARENA_RADIUS)
+            val level = Random.nextInt(safeMin, safeMax + 1)
+            val shiny = Random.nextDouble() < RIFT_SHINY_CHANCE
+            val entity = SpawnHelper.spawnPokemon(world, species, spawnPos, level, shiny) ?: return@repeat
+            spawned += entity
+        }
+
+        rememberSpawnedEntities(event, spawned)
+        return spawned.size
+    }
+
+    private fun selectRiftSpecies(speciesPool: List<String>): String {
+        return if (Random.nextDouble() < RIFT_DITTO_CHANCE) {
+            "ditto"
+        } else {
+            speciesPool.random()
+        }
+    }
+
+    private fun randomSpawnPos(world: ServerWorld, center: BlockPos, radius: Int): BlockPos {
+        val x = center.x + Random.nextInt(-radius, radius + 1)
+        val z = center.z + Random.nextInt(-radius, radius + 1)
+        val y = world.getTopY(Heightmap.Type.MOTION_BLOCKING, x, z).coerceAtLeast(center.y)
+        return BlockPos(x, y, z)
+    }
+
+    private fun createRealmCenter(): BlockPos {
+        val base = Random.nextInt(6000, 12001)
+        val signedX = if (Random.nextBoolean()) base else -base
+        val signedZ = if (Random.nextBoolean()) base else -base
+        val alignedX = (signedX / 16) * 16
+        val alignedZ = (signedZ / 16) * 16
+        return BlockPos(alignedX, RIFT_ARENA_Y, alignedZ)
+    }
+
+    private fun tryImportArenaTemplate(server: MinecraftServer, center: BlockPos, themeId: String): Boolean {
+        val candidates = listOf(
+            "$TEMPLATE_PREFIX/$themeId",
+            "$TEMPLATE_PREFIX/default"
+        )
+        for (templatePath in candidates) {
+            if (!hasTemplateResource(server, templatePath)) continue
+            val templateId = "$TEMPLATE_NAMESPACE:$templatePath"
+            val placed = executeServerCommand(
+                server,
+                "execute in $RIFT_REALM_DIMENSION_ID positioned ${center.x} ${center.y} ${center.z} run place template $templateId"
+            )
+            if (placed) {
+                CobblemonEventsMod.LOGGER.info("[TemporalRift] 구조물 템플릿 적용 성공: $templateId")
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun hasTemplateResource(server: MinecraftServer, templatePath: String): Boolean {
+        return try {
+            val resourceId = Identifier.of(TEMPLATE_NAMESPACE, "structure/$templatePath.nbt")
+            server.resourceManager.getResource(resourceId).isPresent
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun buildRiftArena(world: ServerWorld, center: BlockPos, theme: RiftArenaTheme) {
+        val clearRadius = RIFT_ARENA_RADIUS + 10
+        val floorY = center.y
+        for (x in center.x - clearRadius..center.x + clearRadius) {
+            for (z in center.z - clearRadius..center.z + clearRadius) {
+                for (y in floorY + 1..floorY + RIFT_DOME_HEIGHT + 6) {
+                    world.setBlockState(BlockPos(x, y, z), Blocks.AIR.defaultState, Block.NOTIFY_ALL)
+                }
+
+                val dx = x - center.x
+                val dz = z - center.z
+                val distanceSq = dx * dx + dz * dz
+                val state = when {
+                    distanceSq <= (RIFT_ARENA_RADIUS * RIFT_ARENA_RADIUS) -> theme.floor
+                    distanceSq <= ((RIFT_ARENA_RADIUS + 2) * (RIFT_ARENA_RADIUS + 2)) -> theme.ring
+                    distanceSq <= ((RIFT_ARENA_RADIUS + 4) * (RIFT_ARENA_RADIUS + 4)) -> theme.outer
+                    else -> null
+                }
+                if (state != null) {
+                    world.setBlockState(BlockPos(x, floorY, z), state, Block.NOTIFY_ALL)
+                }
+            }
+        }
+
+        buildRiftDome(world, center, theme)
+        buildRiftPillars(world, center, theme)
+
+        val core = center.up(1)
+        world.setBlockState(core, theme.core, Block.NOTIFY_ALL)
+        world.setBlockState(core.up(), Blocks.END_ROD.defaultState, Block.NOTIFY_ALL)
+    }
+
+    private fun buildRiftDome(world: ServerWorld, center: BlockPos, theme: RiftArenaTheme) {
+        for (y in 1..RIFT_DOME_HEIGHT) {
+            val radiusAtHeight = kotlin.math.sqrt(
+                (RIFT_ARENA_RADIUS.toDouble() * RIFT_ARENA_RADIUS.toDouble()) - (y.toDouble() * y.toDouble())
+            ).toInt().coerceAtLeast(3)
+            val shellMin = (radiusAtHeight - 1) * (radiusAtHeight - 1)
+            val shellMax = radiusAtHeight * radiusAtHeight
+            val currentY = center.y + y
+            for (x in center.x - radiusAtHeight..center.x + radiusAtHeight) {
+                for (z in center.z - radiusAtHeight..center.z + radiusAtHeight) {
+                    val dx = x - center.x
+                    val dz = z - center.z
+                    val distanceSq = dx * dx + dz * dz
+                    if (distanceSq in shellMin..shellMax) {
+                        world.setBlockState(BlockPos(x, currentY, z), theme.dome, Block.NOTIFY_ALL)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun buildRiftPillars(world: ServerWorld, center: BlockPos, theme: RiftArenaTheme) {
+        val points = listOf(
+            BlockPos(center.x + 9, center.y + 1, center.z + 9),
+            BlockPos(center.x - 9, center.y + 1, center.z + 9),
+            BlockPos(center.x + 9, center.y + 1, center.z - 9),
+            BlockPos(center.x - 9, center.y + 1, center.z - 9)
+        )
+        for (point in points) {
+            for (dy in 0..8) {
+                world.setBlockState(point.up(dy), theme.pillar, Block.NOTIFY_ALL)
+            }
+            world.setBlockState(point.up(9), theme.core, Block.NOTIFY_ALL)
+        }
+    }
+
+    private fun buildEntrancePedestal(world: ServerWorld, center: BlockPos, theme: RiftArenaTheme) {
+        val y = center.y
+        for (x in center.x - 3..center.x + 3) {
+            for (z in center.z - 3..center.z + 3) {
+                world.setBlockState(BlockPos(x, y, z), theme.ring, Block.NOTIFY_ALL)
+                world.setBlockState(BlockPos(x, y + 1, z), Blocks.AIR.defaultState, Block.NOTIFY_ALL)
+                world.setBlockState(BlockPos(x, y + 2, z), Blocks.AIR.defaultState, Block.NOTIFY_ALL)
+                world.setBlockState(BlockPos(x, y + 3, z), Blocks.AIR.defaultState, Block.NOTIFY_ALL)
+            }
+        }
+        world.setBlockState(center.up(), theme.core, Block.NOTIFY_ALL)
+        world.setBlockState(center.up(2), Blocks.END_ROD.defaultState, Block.NOTIFY_ALL)
+        world.setBlockState(center.north().up(2), theme.dome, Block.NOTIFY_ALL)
+        world.setBlockState(center.south().up(2), theme.dome, Block.NOTIFY_ALL)
+        world.setBlockState(center.east().up(2), theme.dome, Block.NOTIFY_ALL)
+        world.setBlockState(center.west().up(2), theme.dome, Block.NOTIFY_ALL)
+    }
+
+    private fun createPortalPair(
+        server: MinecraftServer,
+        entrancePos: BlockPos,
+        realmCenter: BlockPos,
+        portalName: String
+    ): Boolean {
+        val originX = entrancePos.x + 0.5
+        val originY = entrancePos.y + 1.0
+        val originZ = entrancePos.z + 0.5
+        val destinationX = realmCenter.x + 0.5
+        val destinationY = realmCenter.y + 2.0
+        val destinationZ = realmCenter.z + 0.5
+
+        val makePortal = executeServerCommand(
+            server,
+            "execute in minecraft:overworld run portal euler make_portal " +
+                "${fmt(originX)} ${fmt(originY)} ${fmt(originZ)} 0 0 4 6 1 {}"
+        )
+        if (!makePortal) return false
+
+        val renamePortal = executeServerCommand(
+            server,
+            "execute in minecraft:overworld as @e[type=immersive_portals:portal,x=${entrancePos.x},y=${entrancePos.y},z=${entrancePos.z},distance=..8,sort=nearest,limit=1] " +
+                "run portal set_portal_custom_name $portalName"
+        )
+        if (!renamePortal) return false
+
+        val setDestination = executeServerCommand(
+            server,
+            "execute in minecraft:overworld as @e[type=immersive_portals:portal,name=$portalName,limit=1] " +
+                "run portal set_portal_destination $RIFT_REALM_DIMENSION_ID ${fmt(destinationX)} ${fmt(destinationY)} ${fmt(destinationZ)}"
+        )
+        if (!setDestination) return false
+
+        return executeServerCommand(
+            server,
+            "execute in minecraft:overworld as @e[type=immersive_portals:portal,name=$portalName,limit=1] " +
+                "run portal complete_bi_way_bi_faced_portal"
+        )
+    }
+
+    private fun removePortalPair(event: ActiveEvent, server: MinecraftServer) {
+        if (event.getData<Boolean>(DATA_RIFT_PORTAL_ACTIVE) != true) return
+        val portalName = event.getData<String>(DATA_RIFT_PORTAL_NAME) ?: return
+
+        executeServerCommand(
+            server,
+            "execute in minecraft:overworld as @e[type=immersive_portals:portal,name=$portalName] run portal eradicate_portal_cluster"
+        )
+        executeServerCommand(
+            server,
+            "execute in $RIFT_REALM_DIMENSION_ID as @e[type=immersive_portals:portal,name=$portalName] run portal eradicate_portal_cluster"
+        )
+    }
+
+    private fun isInsideRiftRealm(event: ActiveEvent, player: ServerPlayerEntity): Boolean {
+        if (player.serverWorld.registryKey.value.toString() != RIFT_REALM_DIMENSION_ID) {
+            return false
+        }
+        val center = event.getData<BlockPos>(DATA_RIFT_REALM_CENTER) ?: return false
+        val dx = player.x - (center.x + 0.5)
+        val dz = player.z - (center.z + 0.5)
+        return (dx * dx + dz * dz) <= RIFT_CAPTURE_RADIUS_SQ
+    }
+
+    private fun findWorldById(server: MinecraftServer, worldId: String): ServerWorld? {
+        return server.worldRegistryKeys
+            .asSequence()
+            .mapNotNull { key -> server.getWorld(key) }
+            .firstOrNull { world -> world.registryKey.value.toString().equals(worldId, ignoreCase = true) }
+    }
+
+    private fun isImmersivePortalsLoaded(): Boolean {
+        return FabricLoader.getInstance().isModLoaded(IMMERSIVE_PORTALS_MOD_ID)
+    }
+
+    private fun executeServerCommand(server: MinecraftServer, rawCommand: String): Boolean {
+        val command = rawCommand.trim().removePrefix("/")
+        return try {
+            server.commandManager.executeWithPrefix(server.commandSource, command)
+            true
+        } catch (e: Exception) {
+            CobblemonEventsMod.LOGGER.warn("[TemporalRift] 명령 실행 실패: $command", e)
+            false
+        }
+    }
+
+    private fun fmt(value: Double): String = String.format(Locale.US, "%.3f", value)
 
     private fun resolveRiftTypes(configured: List<RiftTypeEntry>): List<RiftTypeEntry> {
         val merged = linkedMapOf<String, RiftTypeEntry>()
@@ -242,9 +649,10 @@ class TemporalRiftEvent : EventHandler {
         event.setData(DATA_SPAWNED_ENTITY_UUIDS, tracked)
     }
 
-    private fun despawnTrackedEntities(event: ActiveEvent, world: ServerWorld): Int {
+    private fun despawnTrackedEntities(event: ActiveEvent, server: MinecraftServer): Int {
         val tracked = event.getData<MutableSet<String>>(DATA_SPAWNED_ENTITY_UUIDS) ?: return 0
         var removed = 0
+        val worlds = server.worldRegistryKeys.mapNotNull { key -> server.getWorld(key) }
 
         for (id in tracked) {
             val uuid = try {
@@ -253,10 +661,13 @@ class TemporalRiftEvent : EventHandler {
                 null
             } ?: continue
 
-            val entity = world.getEntity(uuid)
-            if (entity is PokemonEntity && entity.isAlive) {
-                entity.discard()
-                removed++
+            for (world in worlds) {
+                val entity = world.getEntity(uuid)
+                if (entity is PokemonEntity && entity.isAlive) {
+                    entity.discard()
+                    removed++
+                    break
+                }
             }
         }
 

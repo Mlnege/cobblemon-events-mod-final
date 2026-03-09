@@ -4,29 +4,32 @@ import com.cobblemonevents.CobblemonEventsMod
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.network.ServerPlayerEntity
 import net.minecraft.sound.SoundCategory
+import net.minecraft.sound.SoundEvent
 import net.minecraft.sound.SoundEvents
 import net.minecraft.text.Text
 
 object BroadcastUtil {
 
+    private const val SEPARATOR = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     private val prefix get() = CobblemonEventsMod.config.prefix
 
-    /** 전체 서버 방송 */
+    private data class Theme(
+        val icon: String,
+        val title: String,
+        val startSound: SoundEvent,
+        val endSound: SoundEvent
+    )
+
     fun broadcast(server: MinecraftServer, message: String) {
-        server.playerManager.playerList.forEach { player ->
-            player.sendMessage(Text.literal(message), false)
-        }
+        server.playerManager.playerList.forEach { it.sendMessage(Text.literal(message), false) }
     }
 
-    /** 빈 줄 */
     fun broadcastBlank(server: MinecraftServer) = broadcast(server, "")
 
-    /** 구분선 */
-    fun broadcastSeparator(server: MinecraftServer, color: String = "§6") {
-        broadcast(server, "${color}§l═══════════════════════════════════")
+    fun broadcastSeparator(server: MinecraftServer, marker: String = "◆") {
+        broadcast(server, "$marker $SEPARATOR")
     }
 
-    /** 이벤트 시작 공지 */
     fun announceEventStart(
         server: MinecraftServer,
         eventName: String,
@@ -34,167 +37,172 @@ object BroadcastUtil {
         duration: Int,
         extraLines: List<String> = emptyList()
     ) {
+        val theme = resolveTheme(eventName)
         broadcastBlank(server)
-        broadcastSeparator(server, "§a")
-        broadcast(server, "${prefix}§a§l✦ 이벤트 시작!")
-        broadcast(server, "  $eventName")
-        broadcast(server, "  $description")
-        broadcast(server, "  §7제한시간: §f${duration}분")
-        extraLines.forEach { broadcast(server, "  $it") }
-        broadcastSeparator(server, "§a")
+        broadcastSeparator(server, theme.icon)
+        broadcast(server, "${prefix}${theme.icon} ${theme.title} 시작")
+        broadcast(server, "  • 이벤트: $eventName")
+        broadcast(server, "  • 설명: $description")
+        broadcast(server, "  • 지속시간: ${duration}분")
+        extraLines.forEach { line -> broadcast(server, "  • $line") }
+        broadcastSeparator(server, theme.icon)
         broadcastBlank(server)
-
-        // 사운드 효과
-        playEventSound(server)
+        playSound(server, theme.startSound, 1.0f, 1.0f)
     }
 
-    /** 이벤트 사전 공지 */
     fun announceUpcoming(server: MinecraftServer, eventName: String, description: String, minutesUntil: Int) {
+        val theme = resolveTheme(eventName)
         broadcastBlank(server)
-        broadcast(server, "${prefix}§b§l⏰ 이벤트 사전 공지!")
-        broadcast(server, "  $eventName §7이(가) §e${minutesUntil}분 후§7에 시작됩니다!")
-        broadcast(server, "  $description")
+        broadcast(server, "${prefix}${theme.icon} ${theme.title} 예고")
+        broadcast(server, "  • 시작까지: ${minutesUntil}분")
+        broadcast(server, "  • 내용: $description")
         broadcastBlank(server)
+        playSound(server, SoundEvents.BLOCK_NOTE_BLOCK_PLING.value(), 0.8f, 1.3f)
     }
 
-    /** 이벤트 종료 공지 */
-    fun announceEventEnd(
-        server: MinecraftServer,
-        eventName: String,
-        stats: List<String> = emptyList()
-    ) {
+    fun announceEventEnd(server: MinecraftServer, eventName: String, stats: List<String> = emptyList()) {
+        val theme = resolveTheme(eventName)
         broadcastBlank(server)
-        broadcastSeparator(server, "§c")
-        broadcast(server, "${prefix}§c§l✦ 이벤트 종료!")
-        broadcast(server, "  $eventName §7이벤트가 종료되었습니다.")
-        stats.forEach { broadcast(server, "  $it") }
-        broadcastSeparator(server, "§c")
+        broadcastSeparator(server, theme.icon)
+        broadcast(server, "${prefix}${theme.icon} ${theme.title} 종료")
+        stats.forEach { s -> broadcast(server, "  • $s") }
+        broadcastSeparator(server, theme.icon)
         broadcastBlank(server)
+        playSound(server, theme.endSound, 0.9f, 1.1f)
     }
 
-    /** 시공 균열 스타일 공지 */
     fun announceRift(server: MinecraftServer, riftName: String, x: Int, y: Int, z: Int, duration: Int) {
         broadcastBlank(server)
-        broadcast(server, "§d§l╔══════════════════════════════╗")
-        broadcast(server, "§d§l║  ${prefix}§d§l⚠ 시공 균열이 열렸습니다!")
-        broadcast(server, "§d§l║  §f$riftName")
-        broadcast(server, "§d§l║  §7좌표: §eX:$x §7Y:§e$y §7Z:§e$z")
-        broadcast(server, "§d§l║  §7${duration}분 후 닫힙니다!")
-        broadcast(server, "§d§l╚══════════════════════════════╝")
+        broadcastSeparator(server, "◆")
+        broadcast(server, "${prefix}◆ 시공의 균열 발생")
+        broadcast(server, "  • 타입: $riftName")
+        broadcast(server, "  • 좌표: X:$x Y:$y Z:$z")
+        broadcast(server, "  • 유지시간: ${duration}분")
+        broadcast(server, "  • 균열 포켓몬 포획으로 보상 획득")
+        broadcastSeparator(server, "◆")
         broadcastBlank(server)
-        playWormholeSound(server)
+        playSound(server, SoundEvents.BLOCK_RESPAWN_ANCHOR_CHARGE, 1.0f, 1.0f)
     }
 
-    /** 울트라 워프홀 공지 */
     fun announceWormhole(server: MinecraftServer, beastName: String, x: Int, y: Int, z: Int, duration: Int) {
         broadcastBlank(server)
-        broadcast(server, "§5§l╔══════════════════════════════╗")
-        broadcast(server, "§5§l║  §d§l🌌 울트라 워프홀 출현!")
-        broadcast(server, "§5§l║  §f울트라비스트가 나타났습니다!")
-        broadcast(server, "§5§l║  §7좌표: §eX:$x §7Y:§e$y §7Z:§e$z")
-        broadcast(server, "§5§l║  §7${duration}분 후 닫힙니다!")
-        broadcast(server, "§5§l╚══════════════════════════════╝")
+        broadcastSeparator(server, "◈")
+        broadcast(server, "${prefix}◈ 울트라 워프홀 개방")
+        broadcast(server, "  • 주요 대상: $beastName")
+        broadcast(server, "  • 좌표: X:$x Y:$y Z:$z")
+        broadcast(server, "  • 유지시간: ${duration}분")
+        broadcast(server, "  • 워프홀 근처에서 울트라비스트 탐색 가능")
+        broadcastSeparator(server, "◈")
         broadcastBlank(server)
-        playWormholeSound(server)
+        playSound(server, SoundEvents.ENTITY_ENDERMAN_TELEPORT, 1.0f, 0.85f)
     }
 
-    /** 전설 레이드 공지 */
     fun announceRaid(server: MinecraftServer, bossName: String, x: Int, y: Int, z: Int) {
         broadcastBlank(server)
-        broadcast(server, "§6§l╔══════════════════════════════╗")
-        broadcast(server, "§6§l║  §e§l🌠 전설 레이드 등장!")
-        broadcast(server, "§6§l║  §f$bossName §7이(가) 나타났습니다!")
-        broadcast(server, "§6§l║  §7좌표: §eX:$x §7Y:§e$y §7Z:§e$z")
-        broadcast(server, "§6§l║  §c힘을 모아 쓰러뜨리세요!")
-        broadcast(server, "§6§l╚══════════════════════════════╝")
+        broadcastSeparator(server, "⚔")
+        broadcast(server, "${prefix}⚔ 전설 레이드 개시")
+        broadcast(server, "  • 보스: $bossName")
+        broadcast(server, "  • 좌표: X:$x Y:$y Z:$z")
+        broadcast(server, "  • 동시 공격 및 동시 포획 시도 가능")
+        broadcastSeparator(server, "⚔")
         broadcastBlank(server)
-        playBossSound(server)
+        playSound(server, SoundEvents.ENTITY_ENDER_DRAGON_GROWL, 1.0f, 1.0f)
     }
 
-    /** 사냥 시즌 공지 */
     fun announceHunting(server: MinecraftServer, targetPokemon: String, duration: Int) {
         broadcastBlank(server)
-        broadcast(server, "§c§l╔══════════════════════════════╗")
-        broadcast(server, "§c§l║  §f§l🏹 포켓몬 사냥 시즌 개막!")
-        broadcast(server, "§c§l║  §7오늘의 사냥 포켓몬:")
-        broadcast(server, "§c§l║  §e§l  $targetPokemon")
-        broadcast(server, "§c§l║  §7가장 많이 잡은 사람이 보상!")
-        broadcast(server, "§c§l║  §7제한시간: §f${duration}분")
-        broadcast(server, "§c§l╚══════════════════════════════╝")
+        broadcastSeparator(server, "🏹")
+        broadcast(server, "${prefix}🏹 사냥 시즌 시작")
+        broadcast(server, "  • 목표 포켓몬: $targetPokemon")
+        broadcast(server, "  • 지속시간: ${duration}분")
+        broadcast(server, "  • 포획 순위에 따라 보상 지급")
+        broadcastSeparator(server, "🏹")
         broadcastBlank(server)
-        playEventSound(server)
+        playSound(server, SoundEvents.ENTITY_PLAYER_LEVELUP, 1.0f, 1.05f)
     }
 
-    /** 럭키 이벤트 공지 */
     fun announceLucky(server: MinecraftServer, effectName: String, duration: Int) {
         broadcastBlank(server)
-        broadcast(server, "§e§l★═══════════════════════════★")
-        broadcast(server, "  §e§l🎰 럭키 이벤트 발동!")
-        broadcast(server, "  $effectName")
-        broadcast(server, "  §7지속시간: §f${duration}분")
-        broadcast(server, "§e§l★═══════════════════════════★")
+        broadcastSeparator(server, "✦")
+        broadcast(server, "${prefix}✦ 럭키 이벤트 발동")
+        broadcast(server, "  • 효과: $effectName")
+        broadcast(server, "  • 지속시간: ${duration}분")
+        broadcast(server, "  • 서버 전체에 확률 보정이 적용됩니다")
+        broadcastSeparator(server, "✦")
         broadcastBlank(server)
-        playLuckySound(server)
+        playSound(server, SoundEvents.BLOCK_BEACON_ACTIVATE, 1.0f, 1.15f)
     }
 
-    /** 랭킹 공지 */
     fun announceRanking(server: MinecraftServer, rankings: List<Triple<String, Int, String>>) {
-        broadcast(server, "${prefix}§e§l🏆 사냥 시즌 최종 결과!")
         broadcastBlank(server)
-        val medals = listOf("§6🥇", "§f🥈", "§c🥉")
-        for ((index, entry) in rankings.withIndex()) {
+        broadcast(server, "${prefix}🏆 이벤트 최종 순위")
+        rankings.forEachIndexed { idx, entry ->
+            val rank = idx + 1
             val (playerName, count, _) = entry
-            val medal = if (index < 3) medals[index] else "§7  ${index + 1}위"
-            broadcast(server, "  $medal §f$playerName §7- §e${count}마리")
+            broadcast(server, "  #$rank $playerName - $count")
         }
         broadcastBlank(server)
     }
 
-    /** 진행도 메시지 (액션바) */
     fun sendProgress(player: ServerPlayerEntity, message: String) {
         player.sendMessage(Text.literal(message), true)
     }
 
-    /** 개인 메시지 */
     fun sendPersonal(player: ServerPlayerEntity, message: String) {
         player.sendMessage(Text.literal(message), false)
     }
 
-    // ========== 사운드 효과 ==========
-
-    private fun playEventSound(server: MinecraftServer) {
-        server.playerManager.playerList.forEach { player ->
-            player.playSoundToPlayer(
-                SoundEvents.UI_TOAST_CHALLENGE_COMPLETE,
-                SoundCategory.MASTER, 1.0f, 1.0f
+    private fun resolveTheme(eventName: String): Theme {
+        val lower = eventName.lowercase()
+        return when {
+            "시공" in eventName || "rift" in lower -> Theme(
+                icon = "◆",
+                title = "시공의 균열",
+                startSound = SoundEvents.BLOCK_RESPAWN_ANCHOR_CHARGE,
+                endSound = SoundEvents.BLOCK_RESPAWN_ANCHOR_DEPLETE.value()
+            )
+            "웜홀" in eventName || "워프홀" in eventName || "wormhole" in lower -> Theme(
+                icon = "◈",
+                title = "울트라 워프홀",
+                startSound = SoundEvents.ENTITY_ENDERMAN_TELEPORT,
+                endSound = SoundEvents.BLOCK_PORTAL_TRAVEL
+            )
+            "레이드" in eventName || "raid" in lower -> Theme(
+                icon = "⚔",
+                title = "전설 레이드",
+                startSound = SoundEvents.ENTITY_ENDER_DRAGON_GROWL,
+                endSound = SoundEvents.ENTITY_ENDER_DRAGON_DEATH
+            )
+            "사냥" in eventName || "hunt" in lower -> Theme(
+                icon = "🏹",
+                title = "사냥 시즌",
+                startSound = SoundEvents.ENTITY_PLAYER_LEVELUP,
+                endSound = SoundEvents.BLOCK_NOTE_BLOCK_BELL.value()
+            )
+            "럭키" in eventName || "lucky" in lower -> Theme(
+                icon = "✦",
+                title = "럭키 이벤트",
+                startSound = SoundEvents.BLOCK_BEACON_ACTIVATE,
+                endSound = SoundEvents.BLOCK_BEACON_DEACTIVATE
+            )
+            "탐험" in eventName || "explorer" in lower -> Theme(
+                icon = "🧭",
+                title = "대탐험",
+                startSound = SoundEvents.ITEM_LODESTONE_COMPASS_LOCK,
+                endSound = SoundEvents.BLOCK_NOTE_BLOCK_CHIME.value()
+            )
+            else -> Theme(
+                icon = "★",
+                title = "월드 이벤트",
+                startSound = SoundEvents.UI_TOAST_CHALLENGE_COMPLETE,
+                endSound = SoundEvents.BLOCK_NOTE_BLOCK_CHIME.value()
             )
         }
     }
 
-    private fun playWormholeSound(server: MinecraftServer) {
+    private fun playSound(server: MinecraftServer, sound: SoundEvent, volume: Float, pitch: Float) {
         server.playerManager.playerList.forEach { player ->
-            player.playSoundToPlayer(
-                SoundEvents.ENTITY_ENDERMAN_TELEPORT,
-                SoundCategory.MASTER, 1.0f, 0.5f
-            )
-        }
-    }
-
-    private fun playBossSound(server: MinecraftServer) {
-        server.playerManager.playerList.forEach { player ->
-            player.playSoundToPlayer(
-                SoundEvents.ENTITY_ENDER_DRAGON_GROWL,
-                SoundCategory.MASTER, 1.0f, 1.0f
-            )
-        }
-    }
-
-    private fun playLuckySound(server: MinecraftServer) {
-        server.playerManager.playerList.forEach { player ->
-            player.playSoundToPlayer(
-                SoundEvents.ENTITY_PLAYER_LEVELUP,
-                SoundCategory.MASTER, 1.0f, 1.2f
-            )
+            player.playSoundToPlayer(sound, SoundCategory.MASTER, volume, pitch)
         }
     }
 }

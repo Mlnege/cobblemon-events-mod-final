@@ -6,6 +6,7 @@ import com.cobblemonevents.events.ActiveEvent
 import com.cobblemonevents.events.EventHandler
 import com.cobblemonevents.rewards.RewardManager
 import com.cobblemonevents.util.BroadcastUtil
+import com.cobblemonevents.util.SpawnHelper
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.network.ServerPlayerEntity
 import java.util.UUID
@@ -14,11 +15,16 @@ import java.util.concurrent.ConcurrentHashMap
 class AiDynamicEvent : EventHandler {
 
     companion object {
+        private const val TRACKING_SEARCH_RADIUS = 320
+        private const val SPEED_BONUS_TIER_S_MAX_RATIO = 0.20
+        private const val SPEED_BONUS_TIER_A_MAX_RATIO = 0.45
+        private const val SPEED_BONUS_TIER_B_MAX_RATIO = 0.70
         private const val KEY_MODE = "ai_dynamic_mode"
         private const val KEY_TARGET = "ai_dynamic_target"
         private const val KEY_TEMPLATE = "ai_dynamic_template_id"
         private const val KEY_PROFILE = "ai_dynamic_profile"
         private const val KEY_SOURCE = "ai_dynamic_source"
+        private const val KEY_CATEGORY = "ai_dynamic_category"
         private const val KEY_THEME_TYPE = "ai_dynamic_theme_type"
         private const val KEY_TARGET_BIOME = "ai_dynamic_target_biome"
         private const val KEY_CORE_MECHANISM = "ai_dynamic_core_mechanism"
@@ -34,16 +40,24 @@ class AiDynamicEvent : EventHandler {
         val template = event.getData<String>(KEY_TEMPLATE) ?: "unknown"
         val profile = event.getData<String>(KEY_PROFILE) ?: "none"
         val source = event.getData<String>(KEY_SOURCE) ?: "internal"
+        val category = event.getData<String>(KEY_CATEGORY)?.trim()?.lowercase().orEmpty()
         val themeType = event.getData<String>(KEY_THEME_TYPE)?.takeIf { it.isNotBlank() }
         val targetBiome = event.getData<String>(KEY_TARGET_BIOME)?.takeIf { it.isNotBlank() }
         val coreMechanism = event.getData<String>(KEY_CORE_MECHANISM)?.takeIf { it.isNotBlank() }
         val specialEncounter = event.getData<String>(KEY_SPECIAL_ENCOUNTER)?.takeIf { it.isNotBlank() }
+        val trackingEnabled = shouldEnableTracking(category, coreMechanism)
 
         event.setData(KEY_PARTICIPANTS, ConcurrentHashMap.newKeySet<UUID>())
         event.setData(KEY_REWARDED_PLAYERS, ConcurrentHashMap.newKeySet<UUID>())
 
         if (mode == "variety") {
             event.setData(KEY_VARIETY_MAP, ConcurrentHashMap<UUID, MutableSet<String>>())
+        }
+        if (trackingEnabled && event.eventLocation == null) {
+            val location = SpawnHelper.findRandomEventLocation(server, TRACKING_SEARCH_RADIUS)
+            if (location != null) {
+                event.eventLocation = location.second
+            }
         }
 
         val lines = mutableListOf(
@@ -52,6 +66,18 @@ class AiDynamicEvent : EventHandler {
             "완료 보상: AI 밸런스 보상 지급",
             "템플릿: $template / 프로필: $profile / 소스: $source"
         )
+        if (mode == "variety") {
+            lines.add("규칙: 서로 다른 종만 카운트 (중복 종 미반영)")
+        }
+        if (trackingEnabled) {
+            val pos = event.eventLocation
+            if (pos != null) {
+                lines.add("추적 지점: X:${pos.x} Z:${pos.z}")
+                lines.add("화살표: 화면 상단 보스바(↖ ↑ ↗)에서 방향 표시")
+            } else {
+                lines.add("화살표: 위치 탐색 실패로 이번 회차는 비활성화")
+            }
+        }
         if (!themeType.isNullOrBlank() || !targetBiome.isNullOrBlank()) {
             lines.add("테마: ${themeType ?: "-"} / 바이옴: ${targetBiome ?: "-"}")
         }
@@ -205,6 +231,7 @@ class AiDynamicEvent : EventHandler {
 
         return try {
             RewardManager.giveRewards(player, event.definition.rewards, event.definition)
+            grantSpeedBonus(event, player)
             true
         } catch (e: Exception) {
             rewardedPlayers.remove(player.uuid)
@@ -214,6 +241,38 @@ class AiDynamicEvent : EventHandler {
             )
             false
         }
+    }
+
+    private fun grantSpeedBonus(event: ActiveEvent, player: ServerPlayerEntity) {
+        val totalTicks = (event.definition.durationMinutes.coerceAtLeast(1) * 20L * 60L).toLong()
+        if (totalTicks <= 0L) return
+
+        val elapsedTicks = (totalTicks - event.ticksRemaining).coerceIn(0L, totalTicks)
+        val elapsedRatio = elapsedTicks.toDouble() / totalTicks.toDouble()
+
+        val (tier, superBallCount, hyperBallCount) = when {
+            elapsedRatio <= SPEED_BONUS_TIER_S_MAX_RATIO -> Triple("S", 8, 4)
+            elapsedRatio <= SPEED_BONUS_TIER_A_MAX_RATIO -> Triple("A", 6, 3)
+            elapsedRatio <= SPEED_BONUS_TIER_B_MAX_RATIO -> Triple("B", 4, 2)
+            else -> Triple("C", 3, 0)
+        }
+
+        if (superBallCount > 0) {
+            RewardManager.giveItemDirect(player, "cobblemon:great_ball", superBallCount)
+        }
+        if (hyperBallCount > 0) {
+            RewardManager.giveItemDirect(player, "cobblemon:ultra_ball", hyperBallCount)
+        }
+
+        val elapsedSeconds = (elapsedTicks / 20L).toInt()
+        val rewardText = buildString {
+            append("슈퍼볼 x$superBallCount")
+            if (hyperBallCount > 0) append(" + 하이퍼볼 x$hyperBallCount")
+        }
+        BroadcastUtil.sendPersonal(
+            player,
+            "${CobblemonEventsMod.config.prefix}[AI Dynamic] 속도 보너스[$tier] 지급: $rewardText (완료 ${elapsedSeconds}초)"
+        )
     }
 
     private fun normalizeMode(rawMode: String?): String {
@@ -239,5 +298,13 @@ class AiDynamicEvent : EventHandler {
             "hybrid" -> "하이브리드 미션"
             else -> "AI 미션"
         }
+    }
+
+    private fun shouldEnableTracking(category: String, coreMechanism: String?): Boolean {
+        if (category == "legendary_tracking") return true
+        val mechanism = coreMechanism?.trim()?.lowercase().orEmpty()
+        return mechanism.contains("tracking") ||
+            mechanism.contains("clue") ||
+            mechanism.contains("추적")
     }
 }

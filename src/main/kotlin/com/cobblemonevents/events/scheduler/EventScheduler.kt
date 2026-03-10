@@ -236,8 +236,26 @@ class EventScheduler {
         ignorePlayerRequirement: Boolean = false
     ) {
         val def = event.definition
+        val onlinePlayers = server.playerManager.playerList.size
 
-        if (!ignorePlayerRequirement && server.playerManager.playerList.size < def.requiredPlayerCount) {
+        if (!ignorePlayerRequirement && onlinePlayers < def.requiredPlayerCount) {
+            if (onlinePlayers == 0) {
+                val shouldRepeat = shouldRescheduleOnEnd(event)
+                if (shouldRepeat) {
+                    activeEvents.remove(def.id)
+                    scheduleEvent(def, isRepeat = true)
+                    CobblemonEventsMod.LOGGER.info(
+                        "[Scheduler] '${def.id}' skipped (no players online). Next fixed cycle preserved."
+                    )
+                } else {
+                    activeEvents.remove(def.id)
+                    CobblemonEventsMod.LOGGER.info(
+                        "[Scheduler] '${def.id}' skipped (no players online). No reschedule for one-shot/AI event."
+                    )
+                }
+                return
+            }
+
             event.ticksUntilStart = 20L * 60L
             event.state = EventState.WAITING
 

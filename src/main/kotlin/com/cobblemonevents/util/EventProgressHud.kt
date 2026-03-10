@@ -61,7 +61,7 @@ object EventProgressHud {
 
         hadActiveEvent = true
         if (active.definition.eventType == "EXPLORER") {
-            clearActionbar(server)
+            renderExplorerActionbar(server, active)
             renderExplorerDistanceBars(server, active)
             return
         }
@@ -91,6 +91,27 @@ object EventProgressHud {
 
             val text =
                 "${CobblemonEventsMod.config.prefix}[진행] $eventName | 남은:$remain | 참가:$joined | 완료:$done$personalPart"
+            player.sendMessage(Text.literal(text), true)
+        }
+    }
+
+    private fun renderExplorerActionbar(server: MinecraftServer, event: ActiveEvent) {
+        val eventName = resolveEventName(event)
+        val remain = formatRemain(event)
+        val stops = event.getData<List<ExplorerEvent.StopData>>(EXPLORER_STOPS_KEY).orEmpty()
+        val claimedStops = event.getData<ConcurrentHashMap<Int, MutableSet<UUID>>>(EXPLORER_CLAIMED_STOPS_KEY)
+
+        for (player in server.playerManager.playerList) {
+            val total = stops.size
+            val personal = event.getProgress(player.uuid)
+            val remaining = if (claimedStops == null || total <= 0) {
+                0
+            } else {
+                stops.count { stop -> claimedStops[stop.id]?.contains(player.uuid) != true }
+            }
+
+            val text =
+                "${CobblemonEventsMod.config.prefix}[진행] $eventName | 남은:$remain | 남은횟수:$remaining/$total | 내진행:$personal"
             player.sendMessage(Text.literal(text), true)
         }
     }

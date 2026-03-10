@@ -12,9 +12,11 @@ import net.minecraft.particle.ParticleTypes
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.network.ServerPlayerEntity
 import net.minecraft.server.world.ServerWorld
+import net.minecraft.world.World
 import net.minecraft.util.math.BlockPos
 import net.minecraft.util.math.Box
 import java.util.UUID
+import kotlin.random.Random
 
 class LegendaryRaidEvent : EventHandler {
     companion object {
@@ -22,6 +24,7 @@ class LegendaryRaidEvent : EventHandler {
         private const val DATA_BOSS_DEFEATED = "bossDefeated"
         private const val DATA_RAID_BATTLE_MODE = "raidBattleMode"
         private const val DATA_RAID_BOSS_ENTITY_UUID = "raidBossEntityUuid"
+        private const val DATA_RAID_DIMENSION_ID = "raidDimensionId"
 
         private const val RAID_BOSS_SCALE = 5.0f
         private const val RAID_BOSS_SEARCH_RADIUS = 32.0
@@ -29,6 +32,10 @@ class LegendaryRaidEvent : EventHandler {
         private const val RAID_PARTICIPANT_SCAN_INTERVAL_TICKS = 20L
         private const val RAID_PARTICIPANT_RADIUS = 96.0
         private const val RAID_PARTICIPANT_RADIUS_SQ = RAID_PARTICIPANT_RADIUS * RAID_PARTICIPANT_RADIUS
+        private const val RAID_DIMENSION_ID = "minecraft:the_nether"
+        private const val RAID_NETHER_SPAWN_Y = 210
+        private const val RAID_NETHER_PLATFORM_RADIUS = 18
+        private const val RAID_NETHER_CLEAR_HEIGHT = 18
     }
 
     override fun onStart(event: ActiveEvent, server: MinecraftServer) {
@@ -36,11 +43,15 @@ class LegendaryRaidEvent : EventHandler {
         val bossPool = config.bossPool
         if (bossPool.isEmpty()) return
 
-        val location = SpawnHelper.findRandomEventLocation(server, 300) ?: return
-        val (_, pos) = location
+        val world = resolveRaidWorldForStart(server)
+        val pos = if (world.registryKey.value.toString() == RAID_DIMENSION_ID) {
+            createNetherRaidArenaCenter(server, world)
+        } else {
+            val location = SpawnHelper.findRandomEventLocation(server, 300) ?: return
+            location.second
+        }
         event.eventLocation = pos
-
-        val world = server.overworld
+        event.setData(DATA_RAID_DIMENSION_ID, world.registryKey.value.toString())
         val shuffledBosses = bossPool.shuffled()
 
         var selectedBoss: RaidBossEntry? = null
@@ -48,7 +59,7 @@ class LegendaryRaidEvent : EventHandler {
         var raidBattleMode = false
 
         for (candidate in shuffledBosses) {
-            val spawnedBoss = trySpawnRaidBattleBoss(server, pos, candidate.species)
+            val spawnedBoss = trySpawnRaidBattleBoss(server, world, pos, candidate.species)
             if (spawnedBoss != null) {
                 selectedBoss = candidate
                 spawnedBossEntity = spawnedBoss
@@ -92,6 +103,12 @@ class LegendaryRaidEvent : EventHandler {
         }
 
         BroadcastUtil.announceRaid(server, selectedBoss.displayName, pos.x, pos.y, pos.z)
+        if (world.registryKey.value.toString() == RAID_DIMENSION_ID) {
+            BroadcastUtil.broadcast(
+                server,
+                "${CobblemonEventsMod.config.prefix}§5레이드 돔이 네더 상공(Y:${pos.y})에 생성되었습니다."
+            )
+        }
 
         if (raidBattleMode) {
             BroadcastUtil.broadcast(
@@ -105,10 +122,10 @@ class LegendaryRaidEvent : EventHandler {
         val pos = event.eventLocation ?: return
         val bossDefeated = event.getData<Boolean>(DATA_BOSS_DEFEATED) ?: false
         val raidBattleMode = event.getData<Boolean>(DATA_RAID_BATTLE_MODE) ?: false
-        val world = server.overworld
+        val world = resolveRaidWorld(event, server)
 
         if (raidBattleMode && event.ticksRemaining % RAID_PARTICIPANT_SCAN_INTERVAL_TICKS == 0L) {
-            trackNearbyRaidParticipants(event, server, pos)
+            trackNearbyRaidParticipants(event, server, world, pos)
         }
 
         if (bossDefeated) return
@@ -145,14 +162,15 @@ class LegendaryRaidEvent : EventHandler {
         val bossDefeated = event.getData<Boolean>(DATA_BOSS_DEFEATED) ?: false
         val raidBattleMode = event.getData<Boolean>(DATA_RAID_BATTLE_MODE) ?: false
         val config = event.definition.raidConfig ?: return
+        val world = resolveRaidWorld(event, server)
 
         if (raidBattleMode && bossDefeated) {
             event.eventLocation?.let { pos ->
-                trackNearbyRaidParticipants(event, server, pos)
+                trackNearbyRaidParticipants(event, server, world, pos)
             }
         }
 
-        val despawned = despawnRaidBoss(event, server.overworld)
+        val despawned = despawnRaidBoss(event, world)
 
         if (bossDefeated) {
             BroadcastUtil.announceEventEnd(
@@ -220,14 +238,13 @@ class LegendaryRaidEvent : EventHandler {
         }
     }
 
-    private fun trackNearbyRaidParticipants(event: ActiveEvent, server: MinecraftServer, pos: BlockPos) {
+    private fun trackNearbyRaidParticipants(event: ActiveEvent, server: MinecraftServer, world: ServerWorld, pos: BlockPos) {
         val centerX = pos.x + 0.5
         val centerY = pos.y + 0.5
         val centerZ = pos.z + 0.5
-        val overworldKey = server.overworld.registryKey
 
         for (player in server.playerManager.playerList) {
-            if (player.serverWorld.registryKey != overworldKey) continue
+            if (player.serverWorld.registryKey != world.registryKey) continue
             if (!player.isAlive || player.isSpectator) continue
 
             val distanceSq = player.squaredDistanceTo(centerX, centerY, centerZ)
@@ -237,19 +254,19 @@ class LegendaryRaidEvent : EventHandler {
         }
     }
 
-    private fun trySpawnRaidBattleBoss(server: MinecraftServer, pos: BlockPos, species: String): PokemonEntity? {
+    private fun trySpawnRaidBattleBoss(server: MinecraftServer, world: ServerWorld, pos: BlockPos, species: String): PokemonEntity? {
         val speciesId = species.lowercase()
-        val dimensionId = server.overworld.registryKey.value.toString()
+        val dimensionId = world.registryKey.value.toString()
         val commands = listOf(
             "crd spawnboss ${pos.x} ${pos.y} ${pos.z} boss cobblemon:${speciesId}",
             "crd spawnboss ${pos.x} ${pos.y} ${pos.z} ${dimensionId} boss cobblemon:${speciesId}"
         )
 
         for (command in commands) {
-            val existingBossIds = findNearbyBosses(server, pos, speciesId).map { it.uuid }.toSet()
+            val existingBossIds = findNearbyBosses(world, pos, speciesId).map { it.uuid }.toSet()
 
             if (executeServerCommand(server, command)) {
-                val nearbyBosses = findNearbyBosses(server, pos, speciesId)
+                val nearbyBosses = findNearbyBosses(world, pos, speciesId)
                 val spawnedBoss = nearbyBosses.firstOrNull { it.uuid !in existingBossIds }
                     ?: nearbyBosses.firstOrNull()
 
@@ -279,7 +296,7 @@ class LegendaryRaidEvent : EventHandler {
         }
     }
 
-    private fun findNearbyBosses(server: MinecraftServer, pos: BlockPos, speciesId: String): List<PokemonEntity> {
+    private fun findNearbyBosses(world: ServerWorld, pos: BlockPos, speciesId: String): List<PokemonEntity> {
         val searchBox = Box(
             pos.x.toDouble() - RAID_BOSS_SEARCH_RADIUS,
             pos.y.toDouble() - 16.0,
@@ -289,7 +306,7 @@ class LegendaryRaidEvent : EventHandler {
             pos.z.toDouble() + RAID_BOSS_SEARCH_RADIUS
         )
 
-        return server.overworld.getEntitiesByClass(PokemonEntity::class.java, searchBox) { entity ->
+        return world.getEntitiesByClass(PokemonEntity::class.java, searchBox) { entity ->
             entity.isAlive && entity.pokemon.species.name.equals(speciesId, ignoreCase = true)
         }
     }
@@ -319,6 +336,78 @@ class LegendaryRaidEvent : EventHandler {
             entity.calculateDimensions()
         } catch (e: Exception) {
             CobblemonEventsMod.LOGGER.warn("[LegendaryRaid] Failed to apply raid boss scale ${RAID_BOSS_SCALE}x", e)
+        }
+    }
+
+    private fun resolveRaidWorldForStart(server: MinecraftServer): ServerWorld {
+        return server.getWorld(World.NETHER) ?: server.overworld
+    }
+
+    private fun resolveRaidWorld(event: ActiveEvent, server: MinecraftServer): ServerWorld {
+        val dimensionId = event.getData<String>(DATA_RAID_DIMENSION_ID)
+        if (!dimensionId.isNullOrBlank()) {
+            val world = findWorldById(server, dimensionId)
+            if (world != null) return world
+        }
+        return resolveRaidWorldForStart(server)
+    }
+
+    private fun findWorldById(server: MinecraftServer, worldId: String): ServerWorld? {
+        return server.worldRegistryKeys
+            .asSequence()
+            .mapNotNull { key -> server.getWorld(key) }
+            .firstOrNull { world -> world.registryKey.value.toString().equals(worldId, ignoreCase = true) }
+    }
+
+    private fun createNetherRaidArenaCenter(server: MinecraftServer, world: ServerWorld): BlockPos {
+        val anchor = server.playerManager.playerList.randomOrNull()
+        val baseX = if (anchor == null) {
+            Random.nextInt(-1500, 1501)
+        } else if (anchor.serverWorld.registryKey == World.NETHER) {
+            anchor.blockPos.x
+        } else {
+            anchor.blockPos.x / 8
+        }
+        val baseZ = if (anchor == null) {
+            Random.nextInt(-1500, 1501)
+        } else if (anchor.serverWorld.registryKey == World.NETHER) {
+            anchor.blockPos.z
+        } else {
+            anchor.blockPos.z / 8
+        }
+
+        val center = BlockPos(
+            baseX + Random.nextInt(-600, 601),
+            RAID_NETHER_SPAWN_Y.coerceAtLeast(200),
+            baseZ + Random.nextInt(-600, 601)
+        )
+        buildNetherRaidPlatform(world, center)
+        return center
+    }
+
+    private fun buildNetherRaidPlatform(world: ServerWorld, center: BlockPos) {
+        val radius = RAID_NETHER_PLATFORM_RADIUS
+        val floorY = center.y - 1
+        for (x in center.x - radius..center.x + radius) {
+            for (z in center.z - radius..center.z + radius) {
+                val dx = x - center.x
+                val dz = z - center.z
+                val distanceSq = dx * dx + dz * dz
+                if (distanceSq > radius * radius) continue
+
+                for (y in center.y..center.y + RAID_NETHER_CLEAR_HEIGHT) {
+                    world.setBlockState(BlockPos(x, y, z), net.minecraft.block.Blocks.AIR.defaultState, net.minecraft.block.Block.NOTIFY_ALL)
+                }
+
+                world.setBlockState(
+                    BlockPos(x, floorY, z),
+                    if (distanceSq >= (radius - 1) * (radius - 1))
+                        net.minecraft.block.Blocks.CRYING_OBSIDIAN.defaultState
+                    else
+                        net.minecraft.block.Blocks.OBSIDIAN.defaultState,
+                    net.minecraft.block.Block.NOTIFY_ALL
+                )
+            }
         }
     }
 }

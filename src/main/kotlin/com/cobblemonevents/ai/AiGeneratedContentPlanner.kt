@@ -1671,7 +1671,11 @@ object AiGeneratedContentPlanner {
             AI_DYNAMIC_DURATION_MAX_MINUTES
         )
         val extraMinutes = (safeDuration - AI_DYNAMIC_DURATION_MINUTES).coerceAtLeast(0)
-        return (MAX_TARGET_COUNT + extraMinutes).coerceAtMost(MAX_TARGET_COUNT + 5)
+        // 상한도 분당 +1.5 스케일과 동일하게 확장해서 캡에 의해 목표가 과도하게 눌리지 않게 한다.
+        val scaledBonusCap = (extraMinutes * 1.5).roundToInt()
+        val maxExtraMinutes = (AI_DYNAMIC_DURATION_MAX_MINUTES - AI_DYNAMIC_DURATION_MINUTES).coerceAtLeast(0)
+        val maxScaledBonusCap = (maxExtraMinutes * 1.5).roundToInt()
+        return (MAX_TARGET_COUNT + scaledBonusCap).coerceAtMost(MAX_TARGET_COUNT + maxScaledBonusCap)
     }
 
     private fun applyDurationTargetScale(

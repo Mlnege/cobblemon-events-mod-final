@@ -30,6 +30,12 @@
     "cobblemon-ultra-beasts": "*",
     "ultrabeasts": "*",
     "mega_showdown": "*",
-    "legendarymonuments": "*"
+    "legendarymonuments": "*",
+    "generations_core": "*",
+    "generations-core": "*",
+    "aps_trophies": "*",
+    "apstrophy": "*",
+    "cobblemontrainerbattle": "*",
+    "cobblemon-trainer-battle": "*"
   }
 }

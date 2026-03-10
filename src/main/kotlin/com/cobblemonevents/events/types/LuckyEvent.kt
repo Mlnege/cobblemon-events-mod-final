@@ -1,7 +1,6 @@
 package com.cobblemonevents.events.types
 
 import com.cobblemon.mod.common.Cobblemon
-import com.cobblemon.mod.common.pokemon.Pokemon
 import com.cobblemonevents.CobblemonEventsMod
 import com.cobblemonevents.config.LuckyEffectEntry
 import com.cobblemonevents.events.ActiveEvent
@@ -39,8 +38,8 @@ class LuckyEvent : EventHandler {
 
         if (event.ticksRemaining > 0 && event.ticksRemaining % (20 * 60) == 0L) {
             BroadcastUtil.broadcast(server,
-                "${CobblemonEventsMod.config.prefix}§e🎰 럭키 효과 지속 중: ${selectedEffect.displayName} " +
-                        "§7(남은 시간: §f${event.getRemainingMinutes()}분§7)"
+                "${CobblemonEventsMod.config.prefix}§e🎰 럭키 효과 지속 중 / Lucky effect active: ${selectedEffect.displayName} " +
+                        "§7(남은 / Remaining: §f${event.getRemainingMinutes()}분 / min§7)"
             )
         }
     }
@@ -50,8 +49,8 @@ class LuckyEvent : EventHandler {
         removeEffect(selectedEffect)
 
         BroadcastUtil.announceEventEnd(server, event.definition.displayName, listOf(
-            "§7효과: ${selectedEffect.displayName}",
-            "§7럭키 효과가 종료되었습니다!"
+            "§7효과 / Effect: ${selectedEffect.displayName}",
+            "§7럭키 효과가 종료되었습니다. / Lucky effect has ended."
         ))
     }
 
@@ -77,7 +76,7 @@ class LuckyEvent : EventHandler {
                     val luckyPlayer = players.random()
                     giveRandomShiny(luckyPlayer)
                     BroadcastUtil.broadcast(server,
-                        "${CobblemonEventsMod.config.prefix}§6✨ §e${luckyPlayer.name.string}§f님에게 이로치 포켓몬이 지급되었습니다!"
+                        "${CobblemonEventsMod.config.prefix}§6✨ §e${luckyPlayer.name.string}§f님에게 이로치 포켓몬이 지급되었습니다! / A Shiny Pokémon was given to ${luckyPlayer.name.string}!"
                     )
                 }
             }
@@ -95,7 +94,7 @@ class LuckyEvent : EventHandler {
                             luckyPlayer.serverWorld, species, pos, level
                         )
                         BroadcastUtil.broadcast(server,
-                            "${CobblemonEventsMod.config.prefix}§d✨ §e${luckyPlayer.name.string}§f님 주변에 전설의 포켓몬이 나타났습니다!"
+                            "${CobblemonEventsMod.config.prefix}§d✨ §e${luckyPlayer.name.string}§f님 주변에 전설의 포켓몬이 나타났습니다! / A Legendary Pokémon appeared near ${luckyPlayer.name.string}!"
                         )
                     }
                 }
@@ -110,7 +109,7 @@ class LuckyEvent : EventHandler {
                             val newLevel = (lead.level + boost).coerceAtMost(100)
                             lead.level = newLevel
                             BroadcastUtil.sendPersonal(player,
-                                "${CobblemonEventsMod.config.prefix}§b✨ 선두 포켓몬 레벨이 +${boost}되었습니다! §7(Lv.$newLevel)"
+                                "${CobblemonEventsMod.config.prefix}§b✨ 선두 포켓몬 레벨이 +${boost}되었습니다! / Lead Pokémon level +${boost}! §7(Lv.$newLevel)"
                             )
                         }
                     } catch (e: Exception) {
@@ -132,7 +131,7 @@ class LuckyEvent : EventHandler {
                     val (itemId, count) = randomItems.random()
                     RewardManager.giveItemDirect(player, itemId, count)
                     BroadcastUtil.sendPersonal(player,
-                        "${CobblemonEventsMod.config.prefix}§6✨ 하늘에서 아이템이 떨어졌습니다!"
+                        "${CobblemonEventsMod.config.prefix}§6✨ 하늘에서 아이템이 떨어졌습니다! / Items fell from the sky!"
                     )
                 }
             }

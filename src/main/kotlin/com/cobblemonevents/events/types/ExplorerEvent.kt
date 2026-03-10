@@ -6,6 +6,7 @@ import com.cobblemonevents.events.ActiveEvent
 import com.cobblemonevents.events.EventHandler
 import com.cobblemonevents.rewards.RewardManager
 import com.cobblemonevents.util.BroadcastUtil
+import com.cobblemonevents.util.EventProgressHud
 import com.cobblemonevents.util.SpawnHelper
 import net.minecraft.particle.ParticleTypes
 import net.minecraft.server.MinecraftServer
@@ -103,9 +104,9 @@ class ExplorerEvent : EventHandler {
             event.definition.description,
             event.definition.durationMinutes,
             listOf(
-                "포켓스탑: ${stops.size}개 생성됨",
-                "포켓스탑 근처로 가면 보상을 받을 수 있습니다.",
-                "가장 가까운 포켓스탑까지 거리가 표시됩니다."
+                "포켓스탑 / Pokéstops: §e${stops.size}개 생성됨 (generated)",
+                "포켓스탑 근처로 가면 보상을 받을 수 있습니다. / Visit Pokéstops for rewards.",
+                "가장 가까운 포켓스탑까지 거리가 표시됩니다. / Nearest Pokéstop distance shown."
             )
         )
     }
@@ -149,8 +150,8 @@ class ExplorerEvent : EventHandler {
             server,
             event.definition.displayName,
             listOf(
-                "참가자: ${event.participants.size}명",
-                "총 발견한 포켓스탑: ${totalClaimed}개"
+                "참가자 / Participants: §e${event.participants.size}명",
+                "총 발견 포켓스탑 / Total Pokéstops Found: §e${totalClaimed}"
             )
         )
     }
@@ -180,7 +181,7 @@ class ExplorerEvent : EventHandler {
         if (Random.nextDouble() < config.legendFragmentChance) {
             BroadcastUtil.sendPersonal(
                 player,
-                "${CobblemonEventsMod.config.prefix}희귀한 조각을 발견했습니다!"
+                "${CobblemonEventsMod.config.prefix}§d희귀한 조각을 발견했습니다! / Rare fragment found!"
             )
             RewardManager.giveItemDirect(player, "cobblemon:rare_candy", 3)
         }
@@ -188,12 +189,12 @@ class ExplorerEvent : EventHandler {
         val count = event.getProgress(player.uuid)
         BroadcastUtil.sendPersonal(
             player,
-            "${CobblemonEventsMod.config.prefix}포켓스탑 발견! (${count}회)"
+            "${CobblemonEventsMod.config.prefix}§a포켓스탑 발견! / Pokéstop found! §7(${count}회 / times)"
         )
 
         BroadcastUtil.broadcast(
             server,
-            "${CobblemonEventsMod.config.prefix}${player.name.string} 님이 포켓스탑을 발견했습니다! (${count}회)"
+            "${CobblemonEventsMod.config.prefix}§e${player.name.string}§f님이 포켓스탑을 발견했습니다! / found a Pokéstop! §7(${count}회)"
         )
 
         player.serverWorld.spawnParticles(
@@ -207,6 +208,15 @@ class ExplorerEvent : EventHandler {
             0.5,
             0.1
         )
+
+        // 플레이어 기준으로 더 이상 찾을 스탑이 없으면 거리 보스바를 즉시 제거한다.
+        val stops = event.getData<List<StopData>>(DATA_STOPS).orEmpty()
+        val hasRemainingStops = stops.any { stopData ->
+            claimedStops[stopData.id]?.contains(player.uuid) != true
+        }
+        if (!hasRemainingStops) {
+            EventProgressHud.clearTrackingBarFor(player.uuid)
+        }
     }
 
     private fun giveStopBonusItems(player: ServerPlayerEntity) {
@@ -217,7 +227,7 @@ class ExplorerEvent : EventHandler {
 
             BroadcastUtil.sendPersonal(
                 player,
-                "${CobblemonEventsMod.config.prefix}보너스 경험사탕: ${candy.itemId} x${candyCount}"
+                "${CobblemonEventsMod.config.prefix}§b보너스 경험사탕 / Bonus Exp Candy: §f${candy.itemId} §7x${candyCount}"
             )
         } else {
             val bonus = bonusPool.random()
@@ -226,11 +236,11 @@ class ExplorerEvent : EventHandler {
 
             BroadcastUtil.sendPersonal(
                 player,
-                "${CobblemonEventsMod.config.prefix}보너스 아이템: ${bonus.itemId} x${bonusCount}"
+                "${CobblemonEventsMod.config.prefix}§a보너스 아이템 / Bonus Item: §f${bonus.itemId} §7x${bonusCount}"
             )
         }
 
-        // 20% 확률로 이상한 아이템 추가 지급
+        // 20% 확률로 이상한 아이템 추가 지급 / 20% chance for a strange bonus item
         if (Random.nextDouble() < 0.20) {
             val strange = strangePool.random()
             val strangeCount = rollCount(strange.minCount, strange.maxCount)
@@ -238,7 +248,7 @@ class ExplorerEvent : EventHandler {
 
             BroadcastUtil.sendPersonal(
                 player,
-                "${CobblemonEventsMod.config.prefix}수상한 보너스 발견: ${strange.itemId} x${strangeCount}"
+                "${CobblemonEventsMod.config.prefix}§e수상한 보너스 발견 / Strange Bonus: §f${strange.itemId} §7x${strangeCount}"
             )
         }
     }

@@ -20,7 +20,8 @@ Cobblemon 서버용 월드 이벤트 모드입니다.
   - Legendary Monuments
   - APS Trophies (`aps_trophies`)
   - Generations Core (`generations_core`)
-  - Immersive Portals (차원의 틈 포탈 연동)
+  - Cobblemon Trainer Battle (`cobblemontrainerbattle`)
+  - Cobblemon Ultra Beasts (`cobblemon_ultrabeast`)
 
 ## CobbleDomes 데이터팩 사용
 이 레포에는 아래 데이터팩이 포함되어 있습니다.
@@ -56,3 +57,19 @@ Linux/macOS:
 
 빌드 산출물:
 - `build/libs/` 아래 remap jar
+
+## Claude Agent Teams (CODE_EXPERIMENTAL_AGENT_TEAMS)
+- 팀 기능 활성화 설정 파일:
+  - `.claude/settings.json`
+- 팀 에이전트 정의:
+  - `.claude/agents/datapack-generator.md`
+  - `.claude/agents/mod-generator.md`
+  - `.claude/agents/qa-build-verifier.md`
+  - `.claude/agents/gradle-build-engineer.md`
+  - `.claude/agents/mod-api-integrator.md`
+- 팀 시작 프롬프트 템플릿:
+  - `.claude/TEAM_KICKOFF_PROMPT.md`
+
+현재 설정:
+- `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
+- teammate mode: `in-process`

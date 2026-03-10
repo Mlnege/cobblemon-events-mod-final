@@ -100,13 +100,13 @@ class GymChallengeEvent : EventHandler {
         BroadcastUtil.announceEventStart(
             server = server,
             eventName = "커스텀 체육관 챌린지",
-            description = "${selectedType.displayName} §f체육관 배지를 획득하세요.",
+            description = "${selectedType.displayName} §f체육관 배지를 획득하세요. / Earn the gym badge.",
             duration = event.definition.durationMinutes,
             extraLines = listOf(
-                "체육관 타입: ${selectedType.displayName}",
-                "승리 목표: ${target}회",
-                "상대 트레이너: ${selectedTrainer.title} ${selectedTrainer.name} (Gen${selectedTrainer.generation}, Lv.${selectedTrainer.levelMin}-${selectedTrainer.levelMax})",
-                "연동 훅 실행: ${integrationCommandCount}개"
+                "체육관 타입 / Gym Type: ${selectedType.displayName}",
+                "승리 목표 / Win Target: ${target}회 / wins",
+                "상대 트레이너 / Trainer: ${selectedTrainer.title} ${selectedTrainer.name} (Gen${selectedTrainer.generation}, Lv.${selectedTrainer.levelMin}-${selectedTrainer.levelMax})",
+                "연동 훅 실행 / Integration Hooks: ${integrationCommandCount}개 / executed"
             )
         )
 
@@ -138,7 +138,7 @@ class GymChallengeEvent : EventHandler {
             val target = event.getData<Int>(DATA_GYM_TARGET) ?: 0
             BroadcastUtil.broadcast(
                 server,
-                "${CobblemonEventsMod.config.prefix}🏟 ${selectedType?.displayName ?: "체육관"} §f챌린지 진행 중! 목표 승리 ${target}회 | 상대: ${trainer?.name ?: "Unknown"}"
+                "${CobblemonEventsMod.config.prefix}🏟 ${selectedType?.displayName ?: "체육관"} §f챌린지 진행 중 / Challenge in progress! 목표 / Target: ${target}회 / wins | 상대 / Trainer: ${trainer?.name ?: "Unknown"}"
             )
         }
     }
@@ -160,11 +160,11 @@ class GymChallengeEvent : EventHandler {
             server = server,
             eventName = "커스텀 체육관 챌린지",
             stats = listOf(
-                "체육관 타입: ${selectedType?.displayName ?: "미정"}",
-                "상대 트레이너: ${trainer?.title ?: "트레이너"} ${trainer?.name ?: "Unknown"}",
-                "참가자: ${event.participants.size}명",
-                "완주자: ${event.completedPlayers.size}명",
-                "참가 보상: ${participationCount}명"
+                "체육관 타입 / Gym Type: ${selectedType?.displayName ?: "미정 / Unknown"}",
+                "상대 트레이너 / Trainer: ${trainer?.title ?: "트레이너"} ${trainer?.name ?: "Unknown"}",
+                "참가자 / Participants: ${event.participants.size}명",
+                "완주자 / Completions: ${event.completedPlayers.size}명",
+                "참가 보상 / Participation Rewards: ${participationCount}명"
             )
         )
     }
@@ -177,7 +177,7 @@ class GymChallengeEvent : EventHandler {
         val progress = event.addProgress(player.uuid, 1)
         BroadcastUtil.sendProgress(
             player,
-            "§b체육관 승리 진행도: §f${progress}/${target} §7(${selectedType?.displayName ?: "체육관"}§7)"
+            "§b체육관 승리 진행도 / Gym Win Progress: §f${progress}/${target} §7(${selectedType?.displayName ?: "체육관"}§7)"
         )
 
         if (progress < target) return
@@ -198,7 +198,7 @@ class GymChallengeEvent : EventHandler {
             }
             BroadcastUtil.sendPersonal(
                 player,
-                "${CobblemonEventsMod.config.prefix}짠e배지 등록: 짠f$badgeItem 짠7(보유 배지: ${badgeCount}종)"
+                "${CobblemonEventsMod.config.prefix}§e배지 등록 / Badge Registered: §f$badgeItem §7(보유 배지 / Badges: ${badgeCount}종)"
             )
         }
         val currentLevel = CobblemonEventsMod.rankingManager.recordGymChallengeClear(
@@ -211,13 +211,13 @@ class GymChallengeEvent : EventHandler {
             RewardManager.giveRewards(player, gymConfig.legendaryMonumentRewards, event.definition)
             BroadcastUtil.sendPersonal(
                 player,
-                "${CobblemonEventsMod.config.prefix}§6Legendary Monuments 보상 활성 구간(Lv.${gymConfig.legendaryRewardStartLevel}+) 적용!"
+                "${CobblemonEventsMod.config.prefix}§6Legendary Monuments 보상 활성 구간 / Reward zone active (Lv.${gymConfig.legendaryRewardStartLevel}+) 적용 / applied!"
             )
         }
         CobblemonEventsMod.rankingManager.recordEventComplete(player.uuid, player.name.string)
         BroadcastUtil.sendPersonal(
             player,
-            "${CobblemonEventsMod.config.prefix}§b배지 획득 성공! 완주 보상을 지급했습니다. §7(체육관 레벨: ${currentLevel}/300)"
+            "${CobblemonEventsMod.config.prefix}§b배지 획득 성공! 완주 보상을 지급했습니다. / Badge earned! Completion reward granted. §7(체육관 레벨 / Gym Level: ${currentLevel}/300)"
         )
     }
 

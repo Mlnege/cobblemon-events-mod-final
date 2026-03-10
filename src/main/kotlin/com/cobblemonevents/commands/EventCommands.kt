@@ -633,7 +633,7 @@ object EventCommands {
 
         BroadcastUtil.broadcast(
             server,
-            "${prefix}짠e[투표 스킵] 짠f${player.name.string} 짠7찬성 (${state.votes.size}/${onlinePlayerIds.size}) - 대상: ${targetEvent.definition.displayName}"
+            "${prefix}§e[투표 스킵 / Vote Skip] §f${player.name.string} §7찬성 / Voted (${state.votes.size}/${onlinePlayerIds.size}) - 대상 / Target: ${targetEvent.definition.displayName}"
         )
 
         val allAgreed = onlinePlayerIds.all { it in state.votes }
@@ -646,13 +646,13 @@ object EventCommands {
         return if (skipped) {
             BroadcastUtil.broadcast(
                 server,
-                "${prefix}짠a[투표 스킵] 전원 동의로 '${targetEvent.definition.displayName}' 이벤트를 1회 스킵했습니다."
+                "${prefix}§a[투표 스킵 / Vote Skip] 전원 동의 — '${targetEvent.definition.displayName}' 이벤트를 1회 스킵했습니다. / Event skipped by unanimous vote."
             )
             1
         } else {
             BroadcastUtil.broadcast(
                 server,
-                "${prefix}짠c[투표 스킵] 스킵 실행 실패. 잠시 후 다시 시도해 주세요."
+                "${prefix}§c[투표 스킵 / Vote Skip] 스킵 실행 실패 / Skip failed. 잠시 후 다시 시도해 주세요. / Please try again later."
             )
             0
         }

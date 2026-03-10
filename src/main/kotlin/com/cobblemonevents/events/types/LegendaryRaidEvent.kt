@@ -75,7 +75,7 @@ class LegendaryRaidEvent : EventHandler {
                     species = candidate.species,
                     pos = pos,
                     level = candidate.level,
-                    shiny = Math.random() < config.bossShinyChance
+                    shiny = Random.nextDouble() < config.bossShinyChance
                 )
                 if (spawned != null) {
                     applyRaidBossScale(spawned)
@@ -90,7 +90,7 @@ class LegendaryRaidEvent : EventHandler {
             CobblemonEventsMod.LOGGER.warn("[LegendaryRaid] 스폰 가능한 보스를 찾지 못해 이벤트 시작을 취소합니다.")
             BroadcastUtil.broadcast(
                 server,
-                "${CobblemonEventsMod.config.prefix}§c전설 레이드 보스 스폰에 실패해 이번 이벤트를 취소했습니다."
+                "${CobblemonEventsMod.config.prefix}§c전설 레이드 보스 스폰 실패 / Legendary Raid boss spawn failed — 이번 이벤트를 취소했습니다 / Event cancelled."
             )
             return
         }
@@ -106,14 +106,14 @@ class LegendaryRaidEvent : EventHandler {
         if (world.registryKey.value.toString() == RAID_DIMENSION_ID) {
             BroadcastUtil.broadcast(
                 server,
-                "${CobblemonEventsMod.config.prefix}§5레이드 돔이 네더 상공(Y:${pos.y})에 생성되었습니다."
+                "${CobblemonEventsMod.config.prefix}§5레이드 돔이 네더 상공(Y:${pos.y})에 생성되었습니다. / Raid dome created in the Nether at Y:${pos.y}."
             )
         }
 
         if (raidBattleMode) {
             BroadcastUtil.broadcast(
                 server,
-                "${CobblemonEventsMod.config.prefix}§bRaidDens 레이드 보스가 생성되었습니다. 동시 공격/동시 포획 시도가 가능합니다."
+                "${CobblemonEventsMod.config.prefix}§bRaidDens 레이드 보스가 생성되었습니다. 동시 공격/동시 포획 시도가 가능합니다. / RaidDens boss spawned. Simultaneous attacks and catches are allowed."
             )
         }
     }
@@ -151,8 +151,8 @@ class LegendaryRaidEvent : EventHandler {
             BroadcastUtil.broadcast(
                 server,
                 "${CobblemonEventsMod.config.prefix}§6전설 ${boss.displayName}§7가 " +
-                    "§eX:${pos.x} Y:${pos.y} Z:${pos.z}§7에서 기다리고 있습니다! " +
-                    "§7(남은 시간: §f${event.getRemainingMinutes()}분§7)"
+                    "§eX:${pos.x} Y:${pos.y} Z:${pos.z}§7에서 기다리고 있습니다! / is waiting! " +
+                    "§7(남은 시간 / Time left: §f${event.getRemainingMinutes()}분§7)"
             )
         }
     }
@@ -177,20 +177,20 @@ class LegendaryRaidEvent : EventHandler {
                 server,
                 event.definition.displayName,
                 listOf(
-                    "§a§l보스를 처치했습니다!",
-                    "§7보스: ${boss.displayName}",
-                    "참가자: ${event.participants.size}명",
-                    "이벤트 보스 디스폰: ${despawned}마리"
+                    "§a§l보스를 처치했습니다! / Boss defeated!",
+                    "§7보스 / Boss: ${boss.displayName}",
+                    "참가자 / Participants: §e${event.participants.size}명",
+                    "보스 디스폰 / Boss despawned: §e${despawned}마리"
                 )
             )
 
             for (playerUUID in event.participants.keys) {
                 val player = server.playerManager.getPlayer(playerUUID) ?: continue
 
-                RewardManager.giveRewards(player, config.raidRewards, event.definition)
+                RewardManager.giveRewardsWithEvent(player, config.raidRewards, event)
                 CobblemonEventsMod.rankingManager.recordLegendDefeat(playerUUID, player.name.string)
 
-                if (Math.random() < config.catchChance) {
+                if (Random.nextDouble() < config.catchChance) {
                     RewardManager.givePokemonDirect(
                         player,
                         boss.species,
@@ -199,7 +199,7 @@ class LegendaryRaidEvent : EventHandler {
                     )
                     BroadcastUtil.broadcast(
                         server,
-                        "${CobblemonEventsMod.config.prefix}§6§l${player.name.string}§7님이 ${boss.displayName}§7을 포획했습니다!"
+                        "${CobblemonEventsMod.config.prefix}§6§l${player.name.string}§7님이 ${boss.displayName}§7을 포획했습니다! / ${player.name.string} caught ${boss.displayName}!"
                     )
                 }
             }
@@ -208,10 +208,10 @@ class LegendaryRaidEvent : EventHandler {
                 server,
                 event.definition.displayName,
                 listOf(
-                    "§c§l시간 초과! 보스가 도주했습니다...",
-                    "§7보스: ${boss.displayName}",
-                    "참가자: ${event.participants.size}명",
-                    "이벤트 보스 디스폰: ${despawned}마리"
+                    "§c§l시간 초과! 보스가 도주했습니다... / Time out! Boss fled...",
+                    "§7보스 / Boss: ${boss.displayName}",
+                    "참가자 / Participants: §e${event.participants.size}명",
+                    "보스 디스폰 / Boss despawned: §e${despawned}마리"
                 )
             )
         }
@@ -227,7 +227,7 @@ class LegendaryRaidEvent : EventHandler {
 
             BroadcastUtil.broadcast(
                 player.server!!,
-                "${CobblemonEventsMod.config.prefix}§6§l전설 ${player.name.string}§7님이 ${boss.displayName}§7을 쓰러뜨렸습니다!"
+                "${CobblemonEventsMod.config.prefix}§6§l전설 ${player.name.string}§7님이 ${boss.displayName}§7을 쓰러뜨렸습니다! / ${player.name.string} defeated the legendary ${boss.displayName}!"
             )
 
             if (!raidBattleMode) {

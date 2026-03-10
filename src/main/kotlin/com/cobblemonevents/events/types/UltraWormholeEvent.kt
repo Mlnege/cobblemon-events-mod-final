@@ -4,6 +4,7 @@ import com.cobblemon.mod.common.entity.pokemon.PokemonEntity
 import com.cobblemonevents.CobblemonEventsMod
 import com.cobblemonevents.events.ActiveEvent
 import com.cobblemonevents.events.EventHandler
+import com.cobblemonevents.integration.ExternalModApiRegistry
 import com.cobblemonevents.rewards.RewardManager
 import com.cobblemonevents.util.BroadcastUtil
 import com.cobblemonevents.util.SpawnHelper
@@ -32,6 +33,9 @@ class UltraWormholeEvent : EventHandler {
 
         private val DEFAULT_ULTRA_SPACE_DIMENSION_IDS = setOf("ultrabeasts:ultra_space")
         private val SAFE_PLAYER_NAME = Regex("^[A-Za-z0-9_]{1,16}$")
+
+        /** Canonical mod ID for Cobblemon Ultra Beasts, plus known aliases for multi-variant detection. */
+        private val ULTRA_BEASTS_MOD_IDS = listOf("cobblemon_ultrabeast", "cobblemon-ultra-beasts", "ultrabeasts")
     }
 
     override fun onStart(event: ActiveEvent, server: MinecraftServer) {
@@ -84,7 +88,7 @@ class UltraWormholeEvent : EventHandler {
             event.definition.durationMinutes
         )
 
-        BroadcastUtil.broadcast(server, "${CobblemonEventsMod.config.prefix}울트라 워프홀 이벤트가 시작되었습니다!")
+        BroadcastUtil.broadcast(server, "${CobblemonEventsMod.config.prefix}울트라 워프홀 이벤트가 시작되었습니다! / Ultra Wormhole Event has begun!")
         selectedBeasts.forEach { beast ->
             BroadcastUtil.broadcast(server, "  - $beast")
         }
@@ -92,6 +96,15 @@ class UltraWormholeEvent : EventHandler {
     }
 
     private fun spawnWormholeForRandomPlayer(server: MinecraftServer, event: ActiveEvent): Boolean {
+        if (!ExternalModApiRegistry.isAnyLoaded(ULTRA_BEASTS_MOD_IDS)) {
+            CobblemonEventsMod.LOGGER.info(
+                "[UltraWormhole] Ultra Beasts mod not present (checked: ${ULTRA_BEASTS_MOD_IDS.joinToString()}). " +
+                    "Skipping wormhole command — Cobblemon native spawns will be used instead. " +
+                    "울트라비스트 모드 미감지: 워프홀 명령 생략, 기본 스폰으로 대체합니다."
+            )
+            return false
+        }
+
         val players = server.playerManager.playerList
         if (players.isEmpty()) {
             CobblemonEventsMod.LOGGER.warn("[UltraWormhole] 온라인 플레이어가 없어 웜홀 명령을 실행하지 못했습니다.")
@@ -142,7 +155,7 @@ class UltraWormholeEvent : EventHandler {
         if (event.ticksRemaining > 0 && event.ticksRemaining % (20 * 180) == 0L) {
             BroadcastUtil.broadcast(
                 server,
-                "${CobblemonEventsMod.config.prefix}워프홀이 열려 있습니다. 좌표: X:${pos.x} Y:${pos.y} Z:${pos.z} (남은 ${event.getRemainingMinutes()}분)"
+                "${CobblemonEventsMod.config.prefix}워프홀이 열려 있습니다 / Wormhole is open — X:${pos.x} Y:${pos.y} Z:${pos.z} (남은 / Remaining: ${event.getRemainingMinutes()}분 / min)"
             )
         }
 
@@ -154,8 +167,9 @@ class UltraWormholeEvent : EventHandler {
                 .map { it.uuid.toString() }
                 .toSet()
 
+            val ultraBeastsModPresent = ExternalModApiRegistry.isAnyLoaded(ULTRA_BEASTS_MOD_IDS)
             val addSpawnCommand = "ultrabeasts wormhole addspawn ${pos.x} ${pos.y} ${pos.z} 2"
-            val addSpawnSuccess = executeServerCommand(server, addSpawnCommand)
+            val addSpawnSuccess = ultraBeastsModPresent && executeServerCommand(server, addSpawnCommand)
 
             if (!addSpawnSuccess) {
                 val spawned = SpawnHelper.spawnMultiplePokemon(
@@ -175,7 +189,7 @@ class UltraWormholeEvent : EventHandler {
 
             BroadcastUtil.broadcast(
                 server,
-                "${CobblemonEventsMod.config.prefix}워프홀에서 추가 울트라비스트가 출현했습니다!"
+                "${CobblemonEventsMod.config.prefix}워프홀에서 추가 울트라비스트가 출현했습니다! / More Ultra Beasts have appeared from the wormhole!"
             )
         }
     }
@@ -206,10 +220,10 @@ class UltraWormholeEvent : EventHandler {
             server,
             event.definition.displayName,
             listOf(
-                "참가자: ${event.participants.size}명",
-                "포획한 울트라비스트: ${totalCaught}마리",
-                "이벤트 스폰 디스폰: ${despawned}마리",
-                "웜홀이 닫혔습니다."
+                "참가자 / Participants: ${event.participants.size}명",
+                "포획한 울트라비스트 / Ultra Beasts Caught: ${totalCaught}마리",
+                "이벤트 스폰 디스폰 / Event Spawns Despawned: ${despawned}마리",
+                "웜홀이 닫혔습니다. / Wormhole has closed."
             )
         )
     }
@@ -230,10 +244,10 @@ class UltraWormholeEvent : EventHandler {
 
         BroadcastUtil.broadcast(
             player.server!!,
-            "${CobblemonEventsMod.config.prefix}${player.name.string} 님이 울트라비스트 $species 를 포획했습니다! (${count}회)"
+            "${CobblemonEventsMod.config.prefix}${player.name.string} 님이 울트라비스트 $species 를 포획했습니다! / caught Ultra Beast $species! (${count}회 / times)"
         )
 
-        BroadcastUtil.sendProgress(player, "울트라비스트 포획: ${count}마리")
+        BroadcastUtil.sendProgress(player, "울트라비스트 포획 / Ultra Beast caught: ${count}마리 / total")
         RewardManager.giveRewards(player, config.wormholeRewards, event.definition)
     }
 
@@ -272,6 +286,7 @@ class UltraWormholeEvent : EventHandler {
     }
 
     private fun keepWormholeAlive(server: MinecraftServer, pos: BlockPos) {
+        if (!ExternalModApiRegistry.isAnyLoaded(ULTRA_BEASTS_MOD_IDS)) return
         val command = "execute in minecraft:overworld positioned ${pos.x + 0.5} ${pos.y.toDouble()} ${pos.z + 0.5} run ultrabeasts wormhole spawn"
         val ok = executeServerCommand(server, command)
         if (!ok) {

@@ -4,6 +4,7 @@ import com.cobblemon.mod.common.Cobblemon
 import com.cobblemon.mod.common.api.pokemon.PokemonProperties
 import com.cobblemonevents.CobblemonEventsMod
 import com.cobblemonevents.config.*
+import com.cobblemonevents.events.ActiveEvent
 import com.cobblemonevents.util.BroadcastUtil
 import net.minecraft.item.ItemStack
 import net.minecraft.registry.Registries
@@ -19,18 +20,30 @@ object RewardManager {
     private val prefix get() = CobblemonEventsMod.config.prefix
     private const val MASTER_BALL_SPECIAL_MIN_CHANCE = 0.005   // 0.5%
     private const val MASTER_BALL_SPECIAL_MAX_CHANCE = 0.01    // 1.0%
-    private const val MASTER_BALL_SPECIAL_BASE_CHANCE = 0.005  // 이벤트 배수 적용 전 기본 0.5%
+    private const val MASTER_BALL_SPECIAL_BASE_CHANCE = 0.005
 
     // ========================================================
-    // 메인 보상 지급 (기본 보상 + 레어 드롭 롤)
+    // 시간 기반 보상 배수 계산 / Time-based reward multiplier
+    // 빠른 완료 → 더 많은 보상 / Faster completion → more rewards
+    // 공식: 1.0 + (남은 시간 비율) × 1.5
     // ========================================================
 
-    fun giveRewards(player: ServerPlayerEntity, rewards: RewardPool, eventDef: EventDefinition) {
-        // 1) 기본 보상 지급
+    fun calcTimeMultiplier(event: ActiveEvent): Double {
+        val totalTicks = event.definition.durationMinutes * 60L * 20L
+        if (totalTicks <= 0) return 1.0
+        val fraction = event.ticksRemaining.toDouble() / totalTicks.toDouble()
+        return (1.0 + fraction * 1.5).coerceIn(1.0, 2.5)
+    }
+
+    // ========================================================
+    // 메인 보상 지급 / Main reward distribution
+    // ========================================================
+
+    fun giveRewards(player: ServerPlayerEntity, rewards: RewardPool, eventDef: EventDefinition, timeMultiplier: Double = 1.0) {
         when (rewards.rewardMode.uppercase()) {
             "ALL" -> {
                 rewards.pokemon.forEach { givePokemonReward(player, it, rewards.broadcastReward) }
-                rewards.items.forEach { giveItemReward(player, it, rewards.broadcastReward) }
+                rewards.items.forEach { giveItemReward(player, it, rewards.broadcastReward, timeMultiplier) }
             }
             "RANDOM_ONE" -> {
                 val all = mutableListOf<Any>()
@@ -39,7 +52,7 @@ object RewardManager {
                 if (all.isNotEmpty()) {
                     when (val chosen = all.random()) {
                         is PokemonRewardEntry -> givePokemonReward(player, chosen, rewards.broadcastReward)
-                        is ItemRewardEntry -> giveItemReward(player, chosen, rewards.broadcastReward)
+                        is ItemRewardEntry -> giveItemReward(player, chosen, rewards.broadcastReward, timeMultiplier)
                     }
                 }
             }
@@ -52,22 +65,30 @@ object RewardManager {
                     all.shuffled().take(count).forEach { item ->
                         when (item) {
                             is PokemonRewardEntry -> givePokemonReward(player, item, rewards.broadcastReward)
-                            is ItemRewardEntry -> giveItemReward(player, item, rewards.broadcastReward)
+                            is ItemRewardEntry -> giveItemReward(player, item, rewards.broadcastReward, timeMultiplier)
                         }
                     }
                 }
             }
         }
 
-        // 2) 레어 드롭 롤! (Mega Showdown + Legendary Monuments)
         rollRareDrops(player, eventDef.eventType)
 
-        BroadcastUtil.sendPersonal(player, "${prefix}§a§l★ 보상이 지급되었습니다!")
+        if (timeMultiplier > 1.05) {
+            val bonusPct = ((timeMultiplier - 1.0) * 100).toInt()
+            BroadcastUtil.sendPersonal(player, "${prefix}§e⚡ 빠른 완료 보너스 +${bonusPct}%! / Speed Bonus +${bonusPct}%!")
+        }
+
+        BroadcastUtil.sendPersonal(player, "${prefix}§a§l★ 보상이 지급되었습니다! / Rewards granted!")
+    }
+
+    /** 이벤트 인스턴스로부터 시간 배수를 자동 계산하여 보상 지급 */
+    fun giveRewardsWithEvent(player: ServerPlayerEntity, rewards: RewardPool, event: ActiveEvent) {
+        giveRewards(player, rewards, event.definition, calcTimeMultiplier(event))
     }
 
     // ========================================================
-    // 레어 드롭 시스템 (0.25% 확률)
-    // Mega Showdown / Legendary Monuments 아이템
+    // 레어 드롭 시스템 / Rare drop system (0.25% chance)
     // ========================================================
 
     fun rollRareDrops(player: ServerPlayerEntity, eventType: String) {
@@ -76,7 +97,6 @@ object RewardManager {
 
         val multiplier = rareConfig.eventTypeMultipliers[eventType] ?: 1.0
 
-        // Mega Showdown 아이템
         for (drop in rareConfig.megaShowdownDrops) {
             val chance = drop.dropChance * multiplier
             if (Random.nextDouble() < chance) {
@@ -86,7 +106,6 @@ object RewardManager {
             }
         }
 
-        // Legendary Monuments 아이템
         for (drop in rareConfig.legendaryMonumentsDrops) {
             val chance = drop.dropChance * multiplier
             if (Random.nextDouble() < chance) {
@@ -96,7 +115,6 @@ object RewardManager {
             }
         }
 
-        // 모든 이벤트 공통: 마스터볼 특별 드롭 (0.5% ~ 1.0%)
         rollSpecialMasterBallDrop(player, multiplier)
     }
 
@@ -108,9 +126,9 @@ object RewardManager {
         val displayPercent = String.format("%.2f", masterBallChance * 100.0)
         val drop = RareDropEntry(
             itemId = "cobblemon:master_ball",
-            displayName = "§d마스터볼",
+            displayName = "§d마스터볼 / Master Ball",
             dropChance = masterBallChance,
-            description = "이벤트 특별 드롭 (${displayPercent}%)"
+            description = "이벤트 특별 드롭 / Event special drop (${displayPercent}%)"
         )
 
         if (tryGiveModItem(player, drop)) {
@@ -121,16 +139,14 @@ object RewardManager {
     private fun tryGiveModItem(player: ServerPlayerEntity, drop: RareDropEntry): Boolean {
         return try {
             val identifier = Identifier.tryParse(drop.itemId) ?: return false
-
             val item = Registries.ITEM.get(identifier)
 
-            // air = 등록되지 않은 아이템 (모드 미설치)
             val airId = Identifier.tryParse("minecraft:air")
             if (airId != null) {
                 val airItem = Registries.ITEM.get(airId)
                 if (item == airItem) {
                     CobblemonEventsMod.LOGGER.debug(
-                        "[레어드롭] 모드 아이템 없음: ${drop.itemId} (모드 미설치)"
+                        "[레어드롭/RareDrop] 모드 아이템 없음 / Item not found: ${drop.itemId}"
                     )
                     return false
                 }
@@ -139,15 +155,15 @@ object RewardManager {
             val stack = ItemStack(item, 1)
             if (!player.inventory.insertStack(stack)) {
                 player.dropItem(stack, false)
-                BroadcastUtil.sendPersonal(player, "${prefix}§7(인벤토리 가득 → 바닥 드롭)")
+                BroadcastUtil.sendPersonal(player, "${prefix}§7(인벤토리 가득 → 바닥 드롭 / Inventory full → dropped)")
             }
 
             CobblemonEventsMod.LOGGER.info(
-                "[레어드롭] ${player.name.string} ← ${drop.itemId} (${drop.displayName})"
+                "[레어드롭/RareDrop] ${player.name.string} ← ${drop.itemId} (${drop.displayName})"
             )
             true
         } catch (e: Exception) {
-            CobblemonEventsMod.LOGGER.debug("[레어드롭] 지급 실패: ${drop.itemId} - ${e.message}")
+            CobblemonEventsMod.LOGGER.debug("[레어드롭/RareDrop] 지급 실패 / Grant failed: ${drop.itemId} - ${e.message}")
             false
         }
     }
@@ -156,7 +172,7 @@ object RewardManager {
         val server = player.server ?: return
 
         BroadcastUtil.sendPersonal(player, "")
-        BroadcastUtil.sendPersonal(player, "${prefix}§6§l✦✦✦ 초레어 아이템 획득!! ✦✦✦")
+        BroadcastUtil.sendPersonal(player, "${prefix}§6§l✦✦✦ 초레어 아이템 획득!! / Ultra Rare Drop!! ✦✦✦")
         BroadcastUtil.sendPersonal(player, "  $modTag ${drop.displayName}")
         if (drop.description.isNotEmpty()) {
             BroadcastUtil.sendPersonal(player, "  §7${drop.description}")
@@ -165,10 +181,10 @@ object RewardManager {
 
         BroadcastUtil.broadcast(server, "")
         BroadcastUtil.broadcast(server,
-            "${prefix}§6§l✦ RARE DROP! §e${player.name.string}§f님이"
+            "${prefix}§6§l✦ RARE DROP! §e${player.name.string}§f님이 / obtained"
         )
         BroadcastUtil.broadcast(server,
-            "  $modTag ${drop.displayName} §f을(를) 획득했습니다!"
+            "  $modTag ${drop.displayName} §f을(를) 획득했습니다! / acquired!"
         )
         BroadcastUtil.broadcast(server, "")
 
@@ -179,7 +195,7 @@ object RewardManager {
     }
 
     // ========================================================
-    // 직접 지급 헬퍼
+    // 직접 지급 헬퍼 / Direct grant helpers
     // ========================================================
 
     fun givePokemonDirect(player: ServerPlayerEntity, species: String, level: Int, shinyChance: Double = 0.0) {
@@ -191,7 +207,7 @@ object RewardManager {
     }
 
     // ========================================================
-    // 내부 보상 로직
+    // 내부 보상 로직 / Internal reward logic
     // ========================================================
 
     private fun givePokemonReward(player: ServerPlayerEntity, reward: PokemonRewardEntry, broadcast: Boolean) {
@@ -213,48 +229,48 @@ object RewardManager {
             }
 
             val party = Cobblemon.storage.getParty(player)
-            // toGappyList() 대체 코드
             val hasSpace = party.occupied() < party.size()
             if (hasSpace) {
                 party.add(pokemon)
             } else {
                 Cobblemon.storage.getPC(player).add(pokemon)
-                BroadcastUtil.sendPersonal(player, "${prefix}§7(파티 만석 → PC 전송)")
+                BroadcastUtil.sendPersonal(player, "${prefix}§7(파티 만석 → PC 전송 / Party full → sent to PC)")
             }
 
-            val shinyText = if (isShiny) "§6✦이로치✦ " else ""
+            val shinyText = if (isShiny) "§6✦이로치 / Shiny✦ " else ""
             BroadcastUtil.sendPersonal(player,
-                "${prefix}§b포켓몬 획득: ${shinyText}§f${reward.species} §7(Lv.${reward.level})")
+                "${prefix}§b포켓몬 획득 / Pokémon received: ${shinyText}§f${reward.species} §7(Lv.${reward.level})")
 
             if (broadcast) {
                 broadcastToOthers(player,
                     "${prefix}§e${player.name.string}§f님이 ${shinyText}§b${reward.species} §7(Lv.${reward.level})§f 획득!")
             }
         } catch (e: Exception) {
-            CobblemonEventsMod.LOGGER.error("[보상] 포켓몬 지급 실패: ${reward.species}", e)
-            BroadcastUtil.sendPersonal(player, "${prefix}§c포켓몬 보상 오류.")
+            CobblemonEventsMod.LOGGER.error("[보상/Reward] 포켓몬 지급 실패 / Pokémon grant failed: ${reward.species}", e)
+            BroadcastUtil.sendPersonal(player, "${prefix}§c포켓몬 보상 오류 / Pokémon reward error.")
         }
     }
 
-    private fun giveItemReward(player: ServerPlayerEntity, reward: ItemRewardEntry, broadcast: Boolean) {
+    private fun giveItemReward(player: ServerPlayerEntity, reward: ItemRewardEntry, broadcast: Boolean, timeMultiplier: Double = 1.0) {
         try {
             val identifier = Identifier.tryParse(reward.itemId) ?: return
-            val stack = ItemStack(Registries.ITEM.get(identifier), reward.count)
+            val scaledCount = (reward.count * timeMultiplier).toInt().coerceAtLeast(reward.count)
+            val stack = ItemStack(Registries.ITEM.get(identifier), scaledCount)
 
             if (!player.inventory.insertStack(stack)) {
                 player.dropItem(stack, false)
-                BroadcastUtil.sendPersonal(player, "${prefix}§7(인벤토리 가득 → 드롭)")
+                BroadcastUtil.sendPersonal(player, "${prefix}§7(인벤토리 가득 → 드롭 / Inventory full → dropped)")
             }
 
             BroadcastUtil.sendPersonal(player,
-                "${prefix}§a아이템 획득: §f${reward.itemId} §7x${reward.count}")
+                "${prefix}§a아이템 획득 / Item received: §f${reward.itemId} §7x${scaledCount}")
 
             if (broadcast) {
                 broadcastToOthers(player,
-                    "${prefix}§e${player.name.string}§f님이 §a${reward.itemId} §7x${reward.count}§f 획득!")
+                    "${prefix}§e${player.name.string}§f님이 §a${reward.itemId} §7x${scaledCount}§f 획득!")
             }
         } catch (e: Exception) {
-            CobblemonEventsMod.LOGGER.error("[보상] 아이템 지급 실패: ${reward.itemId}", e)
+            CobblemonEventsMod.LOGGER.error("[보상/Reward] 아이템 지급 실패 / Item grant failed: ${reward.itemId}", e)
         }
     }
 

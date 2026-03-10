@@ -244,7 +244,7 @@ class EventScheduler {
             BroadcastUtil.broadcast(
                 server,
                 "${CobblemonEventsMod.config.prefix}§c'${def.displayName}§c' " +
-                        "인원 부족으로 1분 후 재시도합니다. §7(필요: ${def.requiredPlayerCount}명)"
+                        "인원 부족으로 1분 후 재시도합니다. / Not enough players — retrying in 1 min. §7(필요 / Required: ${def.requiredPlayerCount}명)"
             )
             return
         }

@@ -222,6 +222,10 @@ object EventProgressHud {
         trackingBars.clear()
     }
 
+    fun clearTrackingBarFor(playerId: UUID) {
+        trackingBars.remove(playerId)?.clearPlayers()
+    }
+
     private fun clearActionbar(server: MinecraftServer) {
         for (player in server.playerManager.playerList) {
             player.sendMessage(Text.literal(""), true)

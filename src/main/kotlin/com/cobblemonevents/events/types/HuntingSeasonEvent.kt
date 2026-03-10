@@ -30,16 +30,16 @@ class HuntingSeasonEvent : EventHandler {
 
             if (top3.isNotEmpty()) {
                 BroadcastUtil.broadcast(server,
-                    "${CobblemonEventsMod.config.prefix}§e🏹 사냥 시즌 중간 순위 §7(대상: §e$targetPokemon§7)"
+                    "${CobblemonEventsMod.config.prefix}§e🏹 사냥 시즌 중간 순위 / Hunting Season Mid-Rankings §7(대상 / Target: §e$targetPokemon§7)"
                 )
                 val medals = listOf("§6🥇", "§f🥈", "§c🥉")
                 for ((index, entry) in top3.withIndex()) {
                     BroadcastUtil.broadcast(server,
-                        "  ${medals[index]} §f${entry.first} §7- §e${entry.second}마리"
+                        "  ${medals[index]} §f${entry.first} §7- §e${entry.second}마리 / catches"
                     )
                 }
                 BroadcastUtil.broadcast(server,
-                    "  §7남은 시간: §f${event.getRemainingMinutes()}분"
+                    "  §7남은 시간 / Time left: §f${event.getRemainingMinutes()}분 / min"
                 )
             }
         }
@@ -51,7 +51,7 @@ class HuntingSeasonEvent : EventHandler {
                 )
                 if (count > 0) {
                     BroadcastUtil.sendProgress(player,
-                        "§c🏹 사냥 시즌 - 내 순위: §f${rank}위 §7(${count}마리) §7| 남은 시간: §f${event.getRemainingMinutes()}분"
+                        "§c🏹 사냥 시즌 / Hunting - 내 순위 / Rank: §f${rank}위 §7(${count}마리 / catches) §7| 남은 / Left: §f${event.getRemainingMinutes()}분 / min"
                     )
                 }
             }
@@ -64,9 +64,9 @@ class HuntingSeasonEvent : EventHandler {
         val rankings = CobblemonEventsMod.rankingManager.getTopN(event.definition.id, 10)
 
         BroadcastUtil.announceEventEnd(server, event.definition.displayName, listOf(
-            "§7대상 포켓몬: §e$targetPokemon",
-            "§7참가자: §f${event.participants.size}명",
-            "§7총 포획: §e${event.participants.values.sum()}마리"
+            "§7대상 포켓몬 / Target: §e$targetPokemon",
+            "§7참가자 / Participants: §f${event.participants.size}명",
+            "§7총 포획 / Total Caught: §e${event.participants.values.sum()}마리"
         ))
 
         if (rankings.isNotEmpty()) {
@@ -97,7 +97,7 @@ class HuntingSeasonEvent : EventHandler {
 
             val medal = when(index) { 0 -> "🥇"; 1 -> "🥈"; else -> "🥉" }
             BroadcastUtil.broadcast(server,
-                "${CobblemonEventsMod.config.prefix}$medal §e$playerName§f님에게 ${index + 1}등 보상 지급!"
+                "${CobblemonEventsMod.config.prefix}$medal §e$playerName§f님에게 ${index + 1}등 보상 지급! / Rank ${index + 1} reward given to ${playerName}!"
             )
             CobblemonEventsMod.rankingManager.recordEventComplete(uuid, playerName)
         }
@@ -110,7 +110,7 @@ class HuntingSeasonEvent : EventHandler {
 
             RewardManager.giveRewards(player, config.participationRewards, event.definition)
             BroadcastUtil.sendPersonal(player,
-                "${CobblemonEventsMod.config.prefix}§a참가 보상이 지급되었습니다!"
+                "${CobblemonEventsMod.config.prefix}§a참가 보상이 지급되었습니다! / Participation reward granted!"
             )
         }
 
@@ -129,13 +129,13 @@ class HuntingSeasonEvent : EventHandler {
         val (rank, _) = CobblemonEventsMod.rankingManager.getPlayerRank(event.definition.id, player.uuid)
 
         BroadcastUtil.sendProgress(player,
-            "§c🏹 $targetPokemon 포획! §f${count}마리 §7(현재 ${rank}위)"
+            "§c🏹 $targetPokemon 포획 / caught! §f${count}마리 / total §7(현재 / Rank: ${rank}위)"
         )
 
         if (count % 5 == 0) {
             BroadcastUtil.broadcast(
                 player.server!!,
-                "${CobblemonEventsMod.config.prefix}§e${player.name.string}§7님이 §f$targetPokemon §e${count}마리§7를 포획! §7(현재 ${rank}위)"
+                "${CobblemonEventsMod.config.prefix}§e${player.name.string}§7님이 §f$targetPokemon §e${count}마리§7를 포획! / caught ${count}x ${targetPokemon}! §7(현재 / Rank: ${rank}위)"
             )
         }
     }
